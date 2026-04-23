@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/nikita-popov/dav-mcp/internal/config"
 	"github.com/nikita-popov/dav-mcp/internal/dav"
+	"github.com/nikita-popov/dav-mcp/internal/ical"
 	"github.com/nikita-popov/dav-mcp/internal/mcp"
 )
 
@@ -73,13 +75,13 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 	// calendar_get_events
 	s.AddTool(
 		"calendar_get_events",
-		"List calendar events in a given time range",
+		"List calendar events in a time range. Requires an active session (call calendar_connect first).",
 		mcp.InputSchema{
 			Type: "object",
 			Properties: map[string]mcp.Property{
 				"start":    {Type: "string", Description: "Range start, ISO 8601, e.g. 2026-04-01T00:00:00Z"},
 				"end":      {Type: "string", Description: "Range end, ISO 8601, e.g. 2026-04-30T23:59:59Z"},
-				"calendar": {Type: "string", Description: "Calendar path (optional, defaults to primary)"},
+				"calendar": {Type: "string", Description: "Calendar path (optional, defaults to primary discovered calendar)"},
 			},
 			Required: []string{"start", "end"},
 		},
@@ -90,7 +92,52 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 			}, args); err != nil {
 				return nil, err
 			}
-			return stub("calendar_get_events"), nil
+
+			session := dav.Get()
+			if session == nil {
+				return nil, fmt.Errorf("not connected: call calendar_connect first")
+			}
+
+			startStr, _ := args["start"].(string)
+			endStr, _ := args["end"].(string)
+
+			startT, err := time.Parse(time.RFC3339, startStr)
+			if err != nil {
+				return nil, fmt.Errorf("invalid start: %w", err)
+			}
+			endT, err := time.Parse(time.RFC3339, endStr)
+			if err != nil {
+				return nil, fmt.Errorf("invalid end: %w", err)
+			}
+
+			calPath, _ := args["calendar"].(string)
+			if calPath == "" {
+				if len(session.Calendars) == 0 {
+					return nil, fmt.Errorf("no calendars found in session")
+				}
+				calPath = session.Calendars[0].Href
+			}
+
+			const icalFmt = "20060102T150405Z"
+			blobs, err := dav.QueryEvents(ctx, session.Client, calPath,
+				startT.UTC().Format(icalFmt),
+				endT.UTC().Format(icalFmt),
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			var allEvents []ical.ParsedEvent
+			for _, blob := range blobs {
+				allEvents = append(allEvents, ical.ParseEvents(blob)...)
+			}
+
+			return mcp.ToolResult{
+				Content: []mcp.ContentItem{{
+					Type: "text",
+					Text: formatEvents(allEvents, startT, endT),
+				}},
+			}, nil
 		},
 	)
 
@@ -216,6 +263,32 @@ func formatCalendars(s *dav.Session) string {
 			name = "(no name)"
 		}
 		fmt.Fprintf(&b, "  - %s  [%s]\n", name, c.Href)
+	}
+	return b.String()
+}
+
+// formatEvents renders a list of parsed events as human-readable text.
+func formatEvents(events []ical.ParsedEvent, start, end time.Time) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Events from %s to %s (%d found):\n",
+		start.Format("2006-01-02"),
+		end.Format("2006-01-02"),
+		len(events),
+	)
+	for _, e := range events {
+		fmt.Fprintf(&b, "\n[%s]\n", e.UID)
+		fmt.Fprintf(&b, "  Summary:  %s\n", e.Summary)
+		fmt.Fprintf(&b, "  Start:    %s\n", e.Start.Format(time.RFC3339))
+		fmt.Fprintf(&b, "  End:      %s\n", e.End.Format(time.RFC3339))
+		if e.Location != "" {
+			fmt.Fprintf(&b, "  Location: %s\n", e.Location)
+		}
+		if e.Description != "" {
+			fmt.Fprintf(&b, "  Desc:     %s\n", e.Description)
+		}
+		if e.RRule != "" {
+			fmt.Fprintf(&b, "  RRule:    %s\n", e.RRule)
+		}
 	}
 	return b.String()
 }
