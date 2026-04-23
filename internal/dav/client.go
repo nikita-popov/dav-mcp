@@ -160,8 +160,8 @@ func (c *Client) Get(ctx context.Context, path string) ([]byte, error) {
 
 // MultiStatus represents a DAV:multistatus response body.
 type MultiStatus struct {
-	XMLName   xml.Name        `xml:"multistatus"`
-	Responses []PropResponse  `xml:"response"`
+	XMLName   xml.Name       `xml:"multistatus"`
+	Responses []PropResponse `xml:"response"`
 }
 
 // PropResponse is a single DAV:response element.
