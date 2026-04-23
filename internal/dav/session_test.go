@@ -5,18 +5,30 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strings"
 	"testing"
 )
 
-// multiHandler routes PROPFIND requests by path prefix.
+// multiHandler routes PROPFIND requests by path prefix, longest prefix first.
+// Using a plain map caused non-deterministic routing because Go map iteration
+// order is random — "/" could match before "/calendars".
 func multiHandler(routes map[string]string) http.HandlerFunc {
+	// sort prefixes longest → shortest so more-specific routes win
+	prefixes := make([]string, 0, len(routes))
+	for p := range routes {
+		prefixes = append(prefixes, p)
+	}
+	sort.Slice(prefixes, func(i, j int) bool {
+		return len(prefixes[i]) > len(prefixes[j])
+	})
+
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/xml")
-		for prefix, body := range routes {
+		for _, prefix := range prefixes {
 			if strings.HasPrefix(r.URL.Path, prefix) {
 				w.WriteHeader(207)
-				w.Write([]byte(body))
+				w.Write([]byte(routes[prefix]))
 				return
 			}
 		}
@@ -96,9 +108,9 @@ func TestGet_NilBeforeConnect(t *testing.T) {
 
 func TestConnect_StoresAddressbookHome(t *testing.T) {
 	setSession(nil)
-	// principal response also includes addressbook-home-set
+
 	principalWithAB := `<?xml version="1.0"?>
-<multistatus xmlns="DAV:" xmlns:card="urn:ietf:params:xml:ns:carddav">
+<multistatus xmlns="DAV:">
   <response>
     <href>/</href>
     <propstat>
@@ -123,22 +135,19 @@ func TestConnect_StoresAddressbookHome(t *testing.T) {
   </response>
 </multistatus>`
 
-	var reqCount int
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/xml")
 		w.WriteHeader(207)
-		reqCount++
 		switch {
+		case strings.HasPrefix(r.URL.Path, "/calendars"):
+			w.Write([]byte(collectionsResp))
 		case strings.HasPrefix(r.URL.Path, "/principals"):
-			// second call to /principals: return calHome or abHome based on request body
 			body, _ := io.ReadAll(r.Body)
 			if strings.Contains(string(body), "addressbook-home-set") {
 				w.Write([]byte(abHomeResp))
 			} else {
 				w.Write([]byte(calHomeResp))
 			}
-		case strings.HasPrefix(r.URL.Path, "/calendars"):
-			w.Write([]byte(collectionsResp))
 		default:
 			w.Write([]byte(principalWithAB))
 		}
