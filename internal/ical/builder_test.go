@@ -49,11 +49,11 @@ func TestBuildEvent_Basic(t *testing.T) {
 
 func TestBuildEvent_AllDay(t *testing.T) {
 	out := BuildEvent(Event{
-		UID:    "allday@dav-mcp",
+		UID:     "allday@dav-mcp",
 		Summary: "Holiday",
-		Start:  day,
-		End:    day.AddDate(0, 0, 1),
-		AllDay: true,
+		Start:   day,
+		End:     day.AddDate(0, 0, 1),
+		AllDay:  true,
 	})
 	mustContain(t, "allday", out, "DTSTART;VALUE=DATE:20260501")
 	mustContain(t, "allday", out, "DTEND;VALUE=DATE:20260502")
