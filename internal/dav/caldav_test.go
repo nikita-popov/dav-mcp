@@ -2,6 +2,7 @@ package dav
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -55,9 +56,8 @@ func TestQueryEvents_ReturnsTwoEvents(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotMethod = r.Method
 		gotPath = r.URL.Path
-		buf := new(strings.Builder)
-		buf.ReadFrom(r.Body)
-		gotBody = buf.String()
+		b, _ := io.ReadAll(r.Body)
+		gotBody = string(b)
 		w.Header().Set("Content-Type", "application/xml")
 		w.WriteHeader(207)
 		w.Write([]byte(calendarQueryResp))
