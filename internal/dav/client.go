@@ -4,13 +4,15 @@ import (
 	"bytes"
 	"context"
 	"encoding/xml"
-	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 )
 
+// Client is a minimal WebDAV/CalDAV/CardDAV HTTP client.
+// All methods accept a context so callers can enforce timeouts.
 type Client struct {
 	BaseURL   *url.URL
 	HTTP      *http.Client
@@ -19,61 +21,54 @@ type Client struct {
 	UserAgent string
 }
 
-func New(base string, username string, password string) (*Client, error) {
+func New(base, username, password string) (*Client, error) {
 	u, err := url.Parse(base)
 	if err != nil {
 		return nil, err
 	}
 	return &Client{
-		BaseURL:  u,
-		Username: username,
-		Password: password,
-		UserAgent: "dav-mcp",
-		HTTP: &http.Client{
-			Timeout: 30 * time.Second,
-		},
+		BaseURL:   u,
+		Username:  username,
+		Password:  password,
+		UserAgent: "dav-mcp/0.1",
+		HTTP:      &http.Client{Timeout: 30 * time.Second},
 	}, nil
+}
+
+// resolve builds an absolute URL from path.
+// If path is already absolute (starts with http/https) it is used as-is.
+func (c *Client) resolve(path string) string {
+	if strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") {
+		return path
+	}
+	return c.BaseURL.ResolveReference(&url.URL{Path: path}).String()
 }
 
 func (c *Client) do(
 	ctx context.Context,
-	method string,
-	path string,
+	method, path string,
 	headers map[string]string,
 	body io.Reader,
 ) (*http.Response, error) {
-	u := c.BaseURL.ResolveReference(&url.URL{Path: path})
-	req, err := http.NewRequestWithContext(ctx, method, u.String(), body)
+	req, err := http.NewRequestWithContext(ctx, method, c.resolve(path), body)
 	if err != nil {
 		return nil, err
 	}
-	if c.Username != "" {
-		req.SetBasicAuth(c.Username, c.Password)
-	}
-	if c.UserAgent != "" {
-		req.Header.Set("User-Agent", c.UserAgent)
-	}
+	req.SetBasicAuth(c.Username, c.Password)
+	req.Header.Set("User-Agent", c.UserAgent)
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
-	resp, err := c.HTTP.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	return resp, nil
+	return c.HTTP.Do(req)
 }
 
-func (c *Client) Propfind(
-	ctx context.Context,
-	path string,
-	depth string,
-	body []byte,
-) (*MultiStatus, error) {
-	headers := map[string]string{
+// Propfind sends a PROPFIND request and decodes the 207 Multi-Status response.
+func (c *Client) Propfind(ctx context.Context, path, depth string, body []byte) (*MultiStatus, error) {
+	resp, err := c.do(ctx, "PROPFIND", path, map[string]string{
 		"Depth":        depth,
-		"Content-Type": "application/xml",
-	}
-	resp, err := c.do(ctx, "PROPFIND", path, headers, bytes.NewReader(body))
+		"Content-Type": "application/xml; charset=utf-8",
+		"Accept":       "application/xml",
+	}, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
@@ -88,16 +83,13 @@ func (c *Client) Propfind(
 	return &ms, nil
 }
 
-func (c *Client) Report(
-	ctx context.Context,
-	path string,
-	body []byte,
-) (*MultiStatus, error) {
-	headers := map[string]string{
+// Report sends a REPORT request and decodes the 207 Multi-Status response.
+func (c *Client) Report(ctx context.Context, path string, body []byte) (*MultiStatus, error) {
+	resp, err := c.do(ctx, "REPORT", path, map[string]string{
 		"Depth":        "1",
-		"Content-Type": "application/xml",
-	}
-	resp, err := c.do(ctx, "REPORT", path, headers, bytes.NewReader(body))
+		"Content-Type": "application/xml; charset=utf-8",
+		"Accept":       "application/xml",
+	}, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
@@ -112,18 +104,14 @@ func (c *Client) Report(
 	return &ms, nil
 }
 
-func (c *Client) Put(
-	ctx context.Context,
-	path string,
-	contentType string,
-	etag string,
-	body []byte,
-) error {
-	headers := map[string]string{
-		"Content-Type": contentType,
-	}
+// Put creates or updates a resource. Pass etag="" to skip If-Match (new resource).
+func (c *Client) Put(ctx context.Context, path, contentType, etag string, body []byte) error {
+	headers := map[string]string{"Content-Type": contentType}
 	if etag != "" {
 		headers["If-Match"] = etag
+	} else {
+		// Prevent overwriting an existing resource when creating new ones.
+		headers["If-None-Match"] = "*"
 	}
 	resp, err := c.do(ctx, "PUT", path, headers, bytes.NewReader(body))
 	if err != nil {
@@ -136,7 +124,8 @@ func (c *Client) Put(
 	return mapHTTPError(resp.StatusCode)
 }
 
-func (c *Client) Delete(ctx context.Context, path string, etag string) error {
+// Delete removes a resource. Pass etag="" to skip If-Match.
+func (c *Client) Delete(ctx context.Context, path, etag string) error {
 	headers := map[string]string{}
 	if etag != "" {
 		headers["If-Match"] = etag
@@ -152,6 +141,7 @@ func (c *Client) Delete(ctx context.Context, path string, etag string) error {
 	return mapHTTPError(resp.StatusCode)
 }
 
+// Get fetches the raw body of a resource.
 func (c *Client) Get(ctx context.Context, path string) ([]byte, error) {
 	resp, err := c.do(ctx, "GET", path, nil, nil)
 	if err != nil {
@@ -164,35 +154,59 @@ func (c *Client) Get(ctx context.Context, path string) ([]byte, error) {
 	return io.ReadAll(resp.Body)
 }
 
-func mapHTTPError(code int) error {
-	switch code {
-	case 404:
-		return ErrNotFound
-	case 409:
-		return ErrConflict
-	case 412:
-		return ErrPreconditionFailed
-	default:
-		return fmt.Errorf("dav http error: %d", code)
-	}
-}
+// ---------------------------------------------------------------------------
+// XML types for Multi-Status responses
+// ---------------------------------------------------------------------------
 
+// MultiStatus represents a DAV:multistatus response body.
 type MultiStatus struct {
-	XMLName   xml.Name   `xml:"multistatus"`
-	Responses []Response `xml:"response"`
+	XMLName   xml.Name        `xml:"multistatus"`
+	Responses []PropResponse  `xml:"response"`
 }
 
-type Response struct {
+// PropResponse is a single DAV:response element.
+type PropResponse struct {
 	Href     string     `xml:"href"`
 	Propstat []Propstat `xml:"propstat"`
 }
 
+// Propstat groups a set of properties with their HTTP status.
 type Propstat struct {
-	Status string `xml:"status"`
-	Prop   Prop   `xml:"prop"`
+	Status string   `xml:"status"`
+	Prop   PropBody `xml:"prop"`
 }
 
-type Prop struct {
-	DisplayName string `xml:"displayname,omitempty"`
-	ETag        string `xml:"getetag,omitempty"`
+// PropBody holds all property values we care about across all request types.
+// Fields are tagged with their respective XML namespaces.
+type PropBody struct {
+	// DAV: core
+	DisplayName  string       `xml:"displayname"`
+	ETag         string       `xml:"getetag"`
+	ResourceType ResourceType `xml:"resourcetype"`
+
+	// DAV: principal
+	CurrentUserPrincipal HrefWrapper `xml:"current-user-principal"`
+
+	// CalDAV
+	CalendarHomeSet HrefWrapper `xml:"calendar-home-set"`
+	CalendarData    string      `xml:"calendar-data"`
+
+	// CardDAV
+	AddressbookHomeSet HrefWrapper `xml:"addressbook-home-set"`
+	AddressData        string      `xml:"address-data"`
+}
+
+// ResourceType holds the DAV:resourcetype property.
+// The presence of the <collection/> child element is represented as a pointer —
+// nil means the element is absent, non-nil means it was present.
+type ResourceType struct {
+	Collection *struct{} `xml:"collection"`
+}
+
+// IsCollection reports whether this resource is a DAV collection.
+func (r ResourceType) IsCollection() bool { return r.Collection != nil }
+
+// HrefWrapper wraps a single <href> child inside a property element.
+type HrefWrapper struct {
+	Href string `xml:"href"`
 }
