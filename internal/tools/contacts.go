@@ -41,7 +41,6 @@ func RegisterContacts(s *mcp.Server, cfg config.Config) {
 				if session.AddressbookHome == "" {
 					return nil, fmt.Errorf("no addressbook home in session; server may not support CardDAV")
 				}
-				// list collections under addressbook home, take first
 				abs, err := dav.DiscoverCollections(ctx, session.Client, session.AddressbookHome)
 				if err != nil {
 					return nil, fmt.Errorf("discover addressbooks: %w", err)
@@ -198,17 +197,17 @@ func formatContacts(contacts []vcard.Contact, abPath string) string {
 	for _, c := range contacts {
 		fmt.Fprintf(&b, "\n[%s]\n", c.UID)
 		fmt.Fprintf(&b, "  Name:  %s\n", c.FN)
-		if len(c.Email) > 0 {
-			fmt.Fprintf(&b, "  Email: %s\n", strings.Join(c.Email, ", "))
+		if c.Email != "" {
+			fmt.Fprintf(&b, "  Email: %s\n", c.Email)
 		}
-		if len(c.Phone) > 0 {
-			fmt.Fprintf(&b, "  Phone: %s\n", strings.Join(c.Phone, ", "))
+		if c.Phone != "" {
+			fmt.Fprintf(&b, "  Phone: %s\n", c.Phone)
 		}
 		if c.Org != "" {
 			fmt.Fprintf(&b, "  Org:   %s\n", c.Org)
 		}
-		if c.Note != "" {
-			fmt.Fprintf(&b, "  Note:  %s\n", c.Note)
+		if c.Notes != "" {
+			fmt.Fprintf(&b, "  Note:  %s\n", c.Notes)
 		}
 	}
 	return b.String()

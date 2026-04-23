@@ -24,17 +24,17 @@ func TestParseContacts_Single(t *testing.T) {
 	if c.FN != "Alice Smith" {
 		t.Errorf("FN=%q", c.FN)
 	}
-	if len(c.Email) != 1 || c.Email[0] != "alice@example.com" {
-		t.Errorf("Email=%v", c.Email)
+	if c.Email != "alice@example.com" {
+		t.Errorf("Email=%q", c.Email)
 	}
-	if len(c.Phone) != 1 || c.Phone[0] != "+1-555-0100" {
-		t.Errorf("Phone=%v", c.Phone)
+	if c.Phone != "+1-555-0100" {
+		t.Errorf("Phone=%q", c.Phone)
 	}
 	if c.Org != "Acme Corp" {
 		t.Errorf("Org=%q", c.Org)
 	}
-	if c.Note != "Test note" {
-		t.Errorf("Note=%q", c.Note)
+	if c.Notes != "Test note" {
+		t.Errorf("Notes=%q", c.Notes)
 	}
 }
 
@@ -48,13 +48,14 @@ func TestParseContacts_Two(t *testing.T) {
 	}
 }
 
-func TestParseContacts_MultiEmail(t *testing.T) {
+func TestParseContacts_MultiEmail_TakesFirst(t *testing.T) {
 	cs := ParseContacts(multiEmail)
 	if len(cs) != 1 {
 		t.Fatalf("expected 1, got %d", len(cs))
 	}
-	if len(cs[0].Email) != 2 {
-		t.Errorf("expected 2 emails, got %v", cs[0].Email)
+	// Contact.Email is a string — first EMAIL wins
+	if cs[0].Email != "carol@work.com" {
+		t.Errorf("Email=%q, want carol@work.com", cs[0].Email)
 	}
 }
 

@@ -5,29 +5,20 @@ import (
 	"strings"
 )
 
-// Contact holds the fields we extract from a vCard object.
-type Contact struct {
-	UID   string
-	FN    string // formatted name
-	Email []string
-	Phone []string
-	Org   string
-	Note  string
-}
-
 // ParseContacts parses one or more vCard objects from a single string.
 // Multiple BEGIN:VCARD...END:VCARD blocks are all extracted.
+// Uses the Contact type and unfold helper defined in builder.go.
 func ParseContacts(data string) []Contact {
 	var contacts []Contact
 	var cur *Contact
 
 	scanner := bufio.NewScanner(strings.NewReader(unfold(data)))
 	for scanner.Scan() {
-		line := scanner.Text()
+		l := scanner.Text()
 		switch {
-		case line == "BEGIN:VCARD":
+		case l == "BEGIN:VCARD":
 			cur = &Contact{}
-		case line == "END:VCARD":
+		case l == "END:VCARD":
 			if cur != nil {
 				contacts = append(contacts, *cur)
 				cur = nil
@@ -36,26 +27,34 @@ func ParseContacts(data string) []Contact {
 			if cur == nil {
 				continue
 			}
-			name, value, ok := cutProp(line)
+			propName, value, ok := cutProp(l)
 			if !ok {
 				continue
 			}
-			switch {
-			case name == "UID":
+			// propName may include params: "EMAIL;TYPE=work" — strip to base name
+			base := propName
+			if semi := strings.IndexByte(propName, ';'); semi >= 0 {
+				base = propName[:semi]
+			}
+			switch base {
+			case "UID":
 				cur.UID = value
-			case name == "FN":
+			case "FN":
 				cur.FN = unescape(value)
-			case name == "ORG":
+			case "ORG":
+				// ORG may be "Company;Dept" — take first component
 				cur.Org = unescape(strings.SplitN(value, ";", 2)[0])
-			case name == "NOTE":
-				cur.Note = unescape(value)
-			case name == "EMAIL" || strings.HasPrefix(name, "EMAIL;"):
-				if value != "" {
-					cur.Email = append(cur.Email, value)
+			case "NOTE":
+				cur.Notes = unescape(value)
+			case "EMAIL":
+				// Keep only the first email encountered
+				if cur.Email == "" && value != "" {
+					cur.Email = value
 				}
-			case name == "TEL" || strings.HasPrefix(name, "TEL;"):
-				if value != "" {
-					cur.Phone = append(cur.Phone, value)
+			case "TEL":
+				// Keep only the first phone encountered
+				if cur.Phone == "" && value != "" {
+					cur.Phone = value
 				}
 			}
 		}
@@ -63,21 +62,14 @@ func ParseContacts(data string) []Contact {
 	return contacts
 }
 
-// unfold removes RFC 6350 line folding (CRLF + whitespace).
-func unfold(s string) string {
-	s = strings.ReplaceAll(s, "\r\n ", "")
-	s = strings.ReplaceAll(s, "\r\n\t", "")
-	return s
-}
-
-// cutProp splits "NAME" or "NAME;params" from value at the first colon.
-// Returns the raw name part (including params), the value, and ok.
-func cutProp(line string) (name, value string, ok bool) {
-	colon := strings.IndexByte(line, ':')
+// cutProp splits a vCard property line at the first colon.
+// Returns the name part (may include params), the value, and ok.
+func cutProp(l string) (name, value string, ok bool) {
+	colon := strings.IndexByte(l, ':')
 	if colon < 0 {
 		return
 	}
-	return line[:colon], line[colon+1:], true
+	return l[:colon], l[colon+1:], true
 }
 
 // unescape reverses RFC 6350 value escaping.
