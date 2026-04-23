@@ -2,8 +2,11 @@ package tools
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	"github.com/nikita-popov/dav-mcp/internal/config"
+	"github.com/nikita-popov/dav-mcp/internal/dav"
 	"github.com/nikita-popov/dav-mcp/internal/mcp"
 )
 
@@ -12,7 +15,7 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 	// calendar_connect
 	s.AddTool(
 		"calendar_connect",
-		"Connect to a CalDAV server and discover calendars",
+		"Connect to a CalDAV server and discover calendars. Returns a list of available calendars.",
 		mcp.InputSchema{
 			Type: "object",
 			Properties: map[string]mcp.Property{
@@ -28,20 +31,42 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 			}, args); err != nil {
 				return nil, err
 			}
-			// TODO: PROPFIND /.well-known/caldav, discover principal and calendars
-			return stub("calendar_connect"), nil
+			rawURL, _ := args["url"].(string)
+			username, _ := args["username"].(string)
+			password, _ := args["password"].(string)
+
+			session, err := dav.Connect(ctx, rawURL, username, password)
+			if err != nil {
+				return nil, err
+			}
+			return mcp.ToolResult{
+				Content: []mcp.ContentItem{{
+					Type: "text",
+					Text: formatCalendars(session),
+				}},
+			}, nil
 		},
 	)
 
 	// calendar_reconnect
 	s.AddTool(
 		"calendar_reconnect",
-		"Reconnect to the CalDAV server using existing credentials from environment",
+		"Reconnect to the CalDAV server using credentials from environment variables (DAV_URL, DAV_USERNAME, DAV_PASSWORD).",
 		mcp.InputSchema{Type: "object"},
 		func(ctx context.Context, args map[string]any) (any, error) {
-			// TODO: re-use cfg.DAVURL, cfg.Username, cfg.Password
-			_ = cfg
-			return stub("calendar_reconnect"), nil
+			if cfg.DAVURL == "" {
+				return nil, fmt.Errorf("DAV_URL is not set")
+			}
+			session, err := dav.Connect(ctx, cfg.DAVURL, cfg.Username, cfg.Password)
+			if err != nil {
+				return nil, err
+			}
+			return mcp.ToolResult{
+				Content: []mcp.ContentItem{{
+					Type: "text",
+					Text: formatCalendars(session),
+				}},
+			}, nil
 		},
 	)
 
@@ -65,7 +90,6 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 			}, args); err != nil {
 				return nil, err
 			}
-			// TODO: CalDAV REPORT with time-range filter
 			return stub("calendar_get_events"), nil
 		},
 	)
@@ -93,7 +117,6 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 			}, args); err != nil {
 				return nil, err
 			}
-			// TODO: generate UID, build iCalendar VEVENT, PUT to server
 			return stub("calendar_create_event"), nil
 		},
 	)
@@ -121,8 +144,34 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 			}, args); err != nil {
 				return nil, err
 			}
-			// TODO: build VEVENT with RRULE property, PUT to server
 			return stub("calendar_create_recurring_event"), nil
+		},
+	)
+
+	// calendar_update_event
+	s.AddTool(
+		"calendar_update_event",
+		"Update an existing calendar event",
+		mcp.InputSchema{
+			Type: "object",
+			Properties: map[string]mcp.Property{
+				"uid":         {Type: "string", Description: "Event UID"},
+				"summary":     {Type: "string", Description: "New title (optional)"},
+				"start":       {Type: "string", Description: "New start, ISO 8601 (optional)"},
+				"end":         {Type: "string", Description: "New end, ISO 8601 (optional)"},
+				"description": {Type: "string", Description: "New description (optional)"},
+				"location":    {Type: "string", Description: "New location (optional)"},
+			},
+			Required: []string{"uid"},
+		},
+		func(ctx context.Context, args map[string]any) (any, error) {
+			if err := mcp.ValidateArgs(mcp.ArgSchema{
+				Required: []string{"uid"},
+				Optional: []string{"summary", "start", "end", "description", "location"},
+			}, args); err != nil {
+				return nil, err
+			}
+			return stub("calendar_update_event"), nil
 		},
 	)
 
@@ -133,190 +182,40 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 		mcp.InputSchema{
 			Type: "object",
 			Properties: map[string]mcp.Property{
-				"uid":      {Type: "string", Description: "Event UID"},
-				"calendar": {Type: "string", Description: "Calendar path (optional)"},
+				"uid": {Type: "string", Description: "Event UID"},
 			},
 			Required: []string{"uid"},
 		},
 		func(ctx context.Context, args map[string]any) (any, error) {
 			if err := mcp.ValidateArgs(mcp.ArgSchema{
 				Required: []string{"uid"},
-				Optional: []string{"calendar"},
 			}, args); err != nil {
 				return nil, err
 			}
-			// TODO: PROPFIND to resolve href by UID, then DELETE
 			return stub("calendar_delete_event"), nil
 		},
 	)
+}
 
-	// calendar_get_todos
-	s.AddTool(
-		"calendar_get_todos",
-		"List VTODO items from the calendar",
-		mcp.InputSchema{
-			Type: "object",
-			Properties: map[string]mcp.Property{
-				"completed": {Type: "boolean", Description: "Include completed todos (optional, default false)"},
-				"calendar":  {Type: "string", Description: "Calendar path (optional)"},
-			},
-		},
-		func(ctx context.Context, args map[string]any) (any, error) {
-			if err := mcp.ValidateArgs(mcp.ArgSchema{
-				Optional: []string{"completed", "calendar"},
-			}, args); err != nil {
-				return nil, err
-			}
-			// TODO: REPORT with comp-filter VTODO
-			return stub("calendar_get_todos"), nil
-		},
-	)
-
-	// calendar_create_todo
-	s.AddTool(
-		"calendar_create_todo",
-		"Create a new VTODO task",
-		mcp.InputSchema{
-			Type: "object",
-			Properties: map[string]mcp.Property{
-				"summary":  {Type: "string", Description: "Task title"},
-				"due":      {Type: "string", Description: "Due date, ISO 8601 (optional)"},
-				"priority": {Type: "integer", Description: "Priority 1 (high) to 9 (low), optional"},
-				"notes":    {Type: "string", Description: "Additional notes (optional)"},
-				"calendar": {Type: "string", Description: "Calendar path (optional)"},
-			},
-			Required: []string{"summary"},
-		},
-		func(ctx context.Context, args map[string]any) (any, error) {
-			if err := mcp.ValidateArgs(mcp.ArgSchema{
-				Required: []string{"summary"},
-				Optional: []string{"due", "priority", "notes", "calendar"},
-			}, args); err != nil {
-				return nil, err
-			}
-			// TODO: build VTODO, PUT to server
-			return stub("calendar_create_todo"), nil
-		},
-	)
-
-	// calendar_delete_todo
-	s.AddTool(
-		"calendar_delete_todo",
-		"Delete a VTODO task by UID",
-		mcp.InputSchema{
-			Type: "object",
-			Properties: map[string]mcp.Property{
-				"uid":      {Type: "string", Description: "Todo UID"},
-				"calendar": {Type: "string", Description: "Calendar path (optional)"},
-			},
-			Required: []string{"uid"},
-		},
-		func(ctx context.Context, args map[string]any) (any, error) {
-			if err := mcp.ValidateArgs(mcp.ArgSchema{
-				Required: []string{"uid"},
-				Optional: []string{"calendar"},
-			}, args); err != nil {
-				return nil, err
-			}
-			// TODO: resolve href by UID, DELETE
-			return stub("calendar_delete_todo"), nil
-		},
-	)
-
-	// calendar_get_journals
-	s.AddTool(
-		"calendar_get_journals",
-		"List VJOURNAL entries from the calendar",
-		mcp.InputSchema{
-			Type: "object",
-			Properties: map[string]mcp.Property{
-				"start":    {Type: "string", Description: "Range start, ISO 8601 (optional)"},
-				"end":      {Type: "string", Description: "Range end, ISO 8601 (optional)"},
-				"calendar": {Type: "string", Description: "Calendar path (optional)"},
-			},
-		},
-		func(ctx context.Context, args map[string]any) (any, error) {
-			if err := mcp.ValidateArgs(mcp.ArgSchema{
-				Optional: []string{"start", "end", "calendar"},
-			}, args); err != nil {
-				return nil, err
-			}
-			// TODO: REPORT with comp-filter VJOURNAL
-			return stub("calendar_get_journals"), nil
-		},
-	)
-
-	// calendar_get_journal
-	s.AddTool(
-		"calendar_get_journal",
-		"Get a single VJOURNAL entry by UID",
-		mcp.InputSchema{
-			Type: "object",
-			Properties: map[string]mcp.Property{
-				"uid":      {Type: "string", Description: "Journal UID"},
-				"calendar": {Type: "string", Description: "Calendar path (optional)"},
-			},
-			Required: []string{"uid"},
-		},
-		func(ctx context.Context, args map[string]any) (any, error) {
-			if err := mcp.ValidateArgs(mcp.ArgSchema{
-				Required: []string{"uid"},
-				Optional: []string{"calendar"},
-			}, args); err != nil {
-				return nil, err
-			}
-			// TODO: REPORT with UID filter or GET by href
-			return stub("calendar_get_journal"), nil
-		},
-	)
-
-	// calendar_create_journal
-	s.AddTool(
-		"calendar_create_journal",
-		"Create a new VJOURNAL entry",
-		mcp.InputSchema{
-			Type: "object",
-			Properties: map[string]mcp.Property{
-				"summary":     {Type: "string", Description: "Journal title"},
-				"description": {Type: "string", Description: "Journal body text"},
-				"dtstart":     {Type: "string", Description: "Entry date, ISO 8601 (optional, defaults to today)"},
-				"calendar":    {Type: "string", Description: "Calendar path (optional)"},
-			},
-			Required: []string{"summary"},
-		},
-		func(ctx context.Context, args map[string]any) (any, error) {
-			if err := mcp.ValidateArgs(mcp.ArgSchema{
-				Required: []string{"summary"},
-				Optional: []string{"description", "dtstart", "calendar"},
-			}, args); err != nil {
-				return nil, err
-			}
-			// TODO: build VJOURNAL, PUT to server
-			return stub("calendar_create_journal"), nil
-		},
-	)
-
-	// calendar_delete_journal
-	s.AddTool(
-		"calendar_delete_journal",
-		"Delete a VJOURNAL entry by UID",
-		mcp.InputSchema{
-			Type: "object",
-			Properties: map[string]mcp.Property{
-				"uid":      {Type: "string", Description: "Journal UID"},
-				"calendar": {Type: "string", Description: "Calendar path (optional)"},
-			},
-			Required: []string{"uid"},
-		},
-		func(ctx context.Context, args map[string]any) (any, error) {
-			if err := mcp.ValidateArgs(mcp.ArgSchema{
-				Required: []string{"uid"},
-				Optional: []string{"calendar"},
-			}, args); err != nil {
-				return nil, err
-			}
-			// TODO: resolve href by UID, DELETE
-			return stub("calendar_delete_journal"), nil
-		},
-	)
+// formatCalendars renders the session state as human-readable text for the LLM.
+func formatCalendars(s *dav.Session) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Connected to %s\n", s.Client.BaseURL)
+	fmt.Fprintf(&b, "Calendar home: %s\n", s.CalendarHome)
+	if s.AddressbookHome != "" {
+		fmt.Fprintf(&b, "Addressbook home: %s\n", s.AddressbookHome)
+	}
+	if len(s.Calendars) == 0 {
+		fmt.Fprintf(&b, "No calendars found.\n")
+		return b.String()
+	}
+	fmt.Fprintf(&b, "Calendars (%d):\n", len(s.Calendars))
+	for _, c := range s.Calendars {
+		name := c.DisplayName
+		if name == "" {
+			name = "(no name)"
+		}
+		fmt.Fprintf(&b, "  - %s  [%s]\n", name, c.Href)
+	}
+	return b.String()
 }
