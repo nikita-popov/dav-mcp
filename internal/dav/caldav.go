@@ -48,3 +48,17 @@ func QueryEvents(ctx context.Context, c *Client, calendarPath, start, end string
 	}
 	return out, nil
 }
+
+// PutEvent stores an iCalendar object at calendarPath/uid.ics.
+// If etag is empty the request uses If-None-Match:* (safe create).
+// Pass a non-empty etag to update an existing resource.
+func PutEvent(ctx context.Context, c *Client, calendarPath, uid, icsData, etag string) error {
+	path := calendarPath + uid + ".ics"
+	return c.Put(ctx, path, "text/calendar; charset=utf-8", etag, []byte(icsData))
+}
+
+// DeleteEvent removes the .ics resource identified by uid from calendarPath.
+func DeleteEvent(ctx context.Context, c *Client, calendarPath, uid string) error {
+	path := calendarPath + uid + ".ics"
+	return c.Delete(ctx, path, "")
+}

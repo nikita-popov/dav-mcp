@@ -50,8 +50,7 @@ END:VCALENDAR
 </multistatus>`
 
 func TestQueryEvents_ReturnsTwoEvents(t *testing.T) {
-	var gotMethod, gotPath string
-	var gotBody string
+	var gotMethod, gotPath, gotBody string
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotMethod = r.Method
@@ -99,5 +98,66 @@ func TestQueryEvents_Empty(t *testing.T) {
 	}
 	if len(events) != 0 {
 		t.Errorf("expected 0, got %d", len(events))
+	}
+}
+
+func TestPutEvent_SendsPUT(t *testing.T) {
+	var gotMethod, gotPath, gotCT, gotINM string
+	var gotBody string
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotPath = r.URL.Path
+		gotCT = r.Header.Get("Content-Type")
+		gotINM = r.Header.Get("If-None-Match")
+		b, _ := io.ReadAll(r.Body)
+		gotBody = string(b)
+		w.WriteHeader(201)
+	}))
+	defer srv.Close()
+
+	c, _ := New(srv.URL, "u", "p")
+	icsData := "BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nUID:abc@test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
+	err := PutEvent(context.Background(), c, "/calendars/user/personal/", "abc@test", icsData, "")
+	if err != nil {
+		t.Fatalf("PutEvent: %v", err)
+	}
+	if gotMethod != "PUT" {
+		t.Errorf("method=%q, want PUT", gotMethod)
+	}
+	if gotPath != "/calendars/user/personal/abc@test.ics" {
+		t.Errorf("path=%q", gotPath)
+	}
+	if !strings.HasPrefix(gotCT, "text/calendar") {
+		t.Errorf("Content-Type=%q", gotCT)
+	}
+	if gotINM != "*" {
+		t.Errorf("If-None-Match=%q, want *", gotINM)
+	}
+	if !strings.Contains(gotBody, "UID:abc@test") {
+		t.Errorf("body missing UID")
+	}
+}
+
+func TestDeleteEvent_SendsDELETE(t *testing.T) {
+	var gotMethod, gotPath string
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotPath = r.URL.Path
+		w.WriteHeader(204)
+	}))
+	defer srv.Close()
+
+	c, _ := New(srv.URL, "u", "p")
+	err := DeleteEvent(context.Background(), c, "/calendars/user/personal/", "abc@test")
+	if err != nil {
+		t.Fatalf("DeleteEvent: %v", err)
+	}
+	if gotMethod != "DELETE" {
+		t.Errorf("method=%q, want DELETE", gotMethod)
+	}
+	if gotPath != "/calendars/user/personal/abc@test.ics" {
+		t.Errorf("path=%q", gotPath)
 	}
 }

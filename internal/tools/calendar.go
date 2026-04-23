@@ -144,16 +144,16 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 	// calendar_create_event
 	s.AddTool(
 		"calendar_create_event",
-		"Create a new calendar event",
+		"Create a new calendar event. Returns the UID of the created event.",
 		mcp.InputSchema{
 			Type: "object",
 			Properties: map[string]mcp.Property{
 				"summary":     {Type: "string", Description: "Event title"},
-				"start":       {Type: "string", Description: "Start datetime, ISO 8601"},
+				"start":       {Type: "string", Description: "Start datetime, ISO 8601, e.g. 2026-05-01T10:00:00Z"},
 				"end":         {Type: "string", Description: "End datetime, ISO 8601"},
 				"description": {Type: "string", Description: "Event description (optional)"},
 				"location":    {Type: "string", Description: "Location (optional)"},
-				"calendar":    {Type: "string", Description: "Calendar path (optional)"},
+				"calendar":    {Type: "string", Description: "Calendar path (optional, defaults to primary)"},
 			},
 			Required: []string{"summary", "start", "end"},
 		},
@@ -164,7 +164,60 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 			}, args); err != nil {
 				return nil, err
 			}
-			return stub("calendar_create_event"), nil
+
+			session := dav.Get()
+			if session == nil {
+				return nil, fmt.Errorf("not connected: call calendar_connect first")
+			}
+
+			summary, _ := args["summary"].(string)
+			startStr, _ := args["start"].(string)
+			endStr, _ := args["end"].(string)
+			desc, _ := args["description"].(string)
+			loc, _ := args["location"].(string)
+
+			startT, err := time.Parse(time.RFC3339, startStr)
+			if err != nil {
+				return nil, fmt.Errorf("invalid start: %w", err)
+			}
+			endT, err := time.Parse(time.RFC3339, endStr)
+			if err != nil {
+				return nil, fmt.Errorf("invalid end: %w", err)
+			}
+
+			calPath, _ := args["calendar"].(string)
+			if calPath == "" {
+				if len(session.Calendars) == 0 {
+					return nil, fmt.Errorf("no calendars found in session")
+				}
+				calPath = session.Calendars[0].Href
+			}
+
+			event := ical.Event{
+				Summary:     summary,
+				Start:       startT.UTC(),
+				End:         endT.UTC(),
+				Description: desc,
+				Location:    loc,
+			}
+			icsData := ical.BuildEvent(event)
+			// re-parse to get the generated UID
+			parsed := ical.ParseEvents(icsData)
+			uid := ""
+			if len(parsed) > 0 {
+				uid = parsed[0].UID
+			}
+
+			if err := dav.PutEvent(ctx, session.Client, calPath, uid, icsData, ""); err != nil {
+				return nil, fmt.Errorf("create event: %w", err)
+			}
+
+			return mcp.ToolResult{
+				Content: []mcp.ContentItem{{
+					Type: "text",
+					Text: fmt.Sprintf("Event created.\nUID: %s\nCalendar: %s", uid, calPath),
+				}},
+			}, nil
 		},
 	)
 
