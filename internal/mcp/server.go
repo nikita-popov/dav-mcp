@@ -1,10 +1,12 @@
 package mcp
 
 import (
-	"bufio"
+	//"bufio"
 	"encoding/json"
-	"fmt"
+	//"fmt"
 	"os"
+	"sort"
+	"time"
 )
 
 const jsonrpcVersion = "2.0"
@@ -66,25 +68,15 @@ func (s *Server) respondErr(enc *json.Encoder, id any, code int, msg string) {
 	})
 }
 
-func (s *Server) Run() error {
-
-	reader := bufio.NewReaderSize(os.Stdin, 1<<20) // 1 MB — enough for large vCard/ics
+func (s *Server) Run() (err error) {
+	dec := json.NewDecoder(os.Stdin)
 	enc := json.NewEncoder(os.Stdout)
 
 	for {
-		line, err := reader.ReadString('\n')
-		if err != nil {
-			if len(line) == 0 {
-				break
-			}
-		}
-		if len(line) == 0 {
-			continue
-		}
-
 		var req Request
-		if err := json.Unmarshal([]byte(line), &req); err != nil {
-			fmt.Fprintln(os.Stderr, "parse error:", err)
+
+		if err := dec.Decode(&req); err != nil {
+			Logger.Println("parse error:", err)
 			s.respondErr(enc, nil, errParseError, err.Error())
 			continue
 		}
@@ -115,11 +107,9 @@ func (s *Server) Run() error {
 				s.respondErr(enc, req.ID, errMethodNotFound, "server not initialized")
 				continue
 			}
-			list := make([]Tool, 0, len(s.tools))
-			for _, t := range s.tools {
-				list = append(list, t.Tool)
-			}
-			s.respond(enc, req.ID, map[string]any{"tools": list})
+			s.respond(enc, req.ID, map[string]any{
+				"tools": s.listTools(),
+			})
 
 		case "tools/call":
 			if !s.initialized {
@@ -142,11 +132,16 @@ func (s *Server) Run() error {
 				continue
 			}
 
-			res, err := tool.Handler(p.Args)
+			start := time.Now()
+			Logger.Println("tool start:", p.Name)
+			res, err := RunWithTimeout(tool.Handler, p.Args)
+			dur := time.Since(start)
+			Logger.Println("tool end:", p.Name, "duration=", dur)
 			if err != nil {
-				// Tool errors are returned as result with isError:true per MCP spec
 				s.respond(enc, req.ID, ToolResult{
-					Content: []ContentItem{{Type: "text", Text: err.Error()}},
+					Content: []ContentItem{
+						{Type: "text", Text: err.Error()},
+					},
 					IsError: true,
 				})
 				continue
@@ -158,5 +153,24 @@ func (s *Server) Run() error {
 		}
 	}
 
-	return nil
+	return
+}
+
+func (s *Server) listTools() []Tool {
+
+	keys := make([]string, 0, len(s.tools))
+
+	for k := range s.tools {
+		keys = append(keys, k)
+	}
+
+	sort.Strings(keys)
+
+	list := make([]Tool, 0, len(keys))
+
+	for _, k := range keys {
+		list = append(list, s.tools[k].Tool)
+	}
+
+	return list
 }
