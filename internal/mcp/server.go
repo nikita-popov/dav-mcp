@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"encoding/json"
+	"io"
 	"os"
 	"sort"
 	"time"
@@ -9,7 +10,6 @@ import (
 
 const jsonrpcVersion = "2.0"
 
-// Error codes per JSON-RPC 2.0 / MCP spec
 const (
 	errParseError     = -32700
 	errMethodNotFound = -32601
@@ -39,62 +39,40 @@ func NewServer(name, version string) *Server {
 
 func (s *Server) AddTool(name, description string, schema InputSchema, handler ToolHandler) {
 	s.tools[name] = toolEntry{
-		Tool: Tool{
-			Name:        name,
-			Description: description,
-			InputSchema: schema,
-		},
+		Tool:    Tool{Name: name, Description: description, InputSchema: schema},
 		Handler: handler,
 	}
 }
 
-func (s *Server) respond(enc *json.Encoder, id any, result any) {
-	enc.Encode(Response{
-		JSONRPC: jsonrpcVersion,
-		ID:      id,
-		Result:  result,
-	})
-}
-
-func (s *Server) respondErr(enc *json.Encoder, id any, code int, msg string) {
-	enc.Encode(Response{
-		JSONRPC: jsonrpcVersion,
-		ID:      id,
-		Error:   &RPCError{Code: code, Message: msg},
-	})
-}
-
-func (s *Server) Run() error {
-	dec := json.NewDecoder(os.Stdin)
-	enc := json.NewEncoder(os.Stdout)
+// Run reads JSON-RPC requests from r and writes responses to w.
+// Returns when r reaches EOF or a read error occurs.
+func (s *Server) Run(r io.Reader, w io.Writer) error {
+	dec := json.NewDecoder(r)
+	enc := json.NewEncoder(w)
 
 	for {
 		var req Request
-
 		if err := dec.Decode(&req); err != nil {
+			if err == io.EOF {
+				return nil
+			}
 			Logger.Println("parse error:", err)
 			s.respondErr(enc, nil, errParseError, err.Error())
 			continue
 		}
 
-		// Notifications have no id — silently ignore
+		// Notifications (no id) are silently ignored per MCP spec.
 		if req.ID == nil {
 			continue
 		}
 
 		switch req.Method {
-
 		case "initialize":
 			s.initialized = true
 			s.respond(enc, req.ID, map[string]any{
 				"protocolVersion": "2024-11-05",
-				"capabilities": map[string]any{
-					"tools": map[string]any{},
-				},
-				"serverInfo": map[string]any{
-					"name":    s.name,
-					"version": s.version,
-				},
+				"capabilities":    map[string]any{"tools": map[string]any{}},
+				"serverInfo":      map[string]any{"name": s.name, "version": s.version},
 			})
 
 		case "tools/list":
@@ -102,16 +80,13 @@ func (s *Server) Run() error {
 				s.respondErr(enc, req.ID, errMethodNotFound, "server not initialized")
 				continue
 			}
-			s.respond(enc, req.ID, map[string]any{
-				"tools": s.listTools(),
-			})
+			s.respond(enc, req.ID, map[string]any{"tools": s.listTools()})
 
 		case "tools/call":
 			if !s.initialized {
 				s.respondErr(enc, req.ID, errMethodNotFound, "server not initialized")
 				continue
 			}
-
 			var p struct {
 				Name string         `json:"name"`
 				Args map[string]any `json:"arguments"`
@@ -120,18 +95,15 @@ func (s *Server) Run() error {
 				s.respondErr(enc, req.ID, errInvalidParams, err.Error())
 				continue
 			}
-
 			tool, ok := s.tools[p.Name]
 			if !ok {
 				s.respondErr(enc, req.ID, errToolNotFound, "tool not found: "+p.Name)
 				continue
 			}
-
 			start := time.Now()
 			Logger.Println("tool start:", p.Name)
 			res, err := RunWithTimeout(tool.Handler, p.Args)
 			Logger.Println("tool end:", p.Name, "duration=", time.Since(start))
-
 			if err != nil {
 				s.respond(enc, req.ID, ToolResult{
 					Content: []ContentItem{{Type: "text", Text: err.Error()}},
@@ -145,6 +117,19 @@ func (s *Server) Run() error {
 			s.respondErr(enc, req.ID, errMethodNotFound, "method not found: "+req.Method)
 		}
 	}
+}
+
+// RunStdio is the entry point for production use (stdin/stdout).
+func (s *Server) RunStdio() error {
+	return s.Run(os.Stdin, os.Stdout)
+}
+
+func (s *Server) respond(enc *json.Encoder, id any, result any) {
+	enc.Encode(Response{JSONRPC: jsonrpcVersion, ID: id, Result: result})
+}
+
+func (s *Server) respondErr(enc *json.Encoder, id any, code int, msg string) {
+	enc.Encode(Response{JSONRPC: jsonrpcVersion, ID: id, Error: &RPCError{Code: code, Message: msg}})
 }
 
 func (s *Server) listTools() []Tool {
