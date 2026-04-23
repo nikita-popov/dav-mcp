@@ -1,9 +1,7 @@
 package mcp
 
 import (
-	//"bufio"
 	"encoding/json"
-	//"fmt"
 	"os"
 	"sort"
 	"time"
@@ -18,8 +16,6 @@ const (
 	errInvalidParams  = -32602
 	errToolNotFound   = -32001
 )
-
-type ToolHandler func(args map[string]any) (any, error)
 
 type toolEntry struct {
 	Tool
@@ -68,7 +64,7 @@ func (s *Server) respondErr(enc *json.Encoder, id any, code int, msg string) {
 	})
 }
 
-func (s *Server) Run() (err error) {
+func (s *Server) Run() error {
 	dec := json.NewDecoder(os.Stdin)
 	enc := json.NewEncoder(os.Stdout)
 
@@ -81,9 +77,8 @@ func (s *Server) Run() (err error) {
 			continue
 		}
 
-		// Notifications have no id — handle and skip response
+		// Notifications have no id — silently ignore
 		if req.ID == nil {
-			// e.g. notifications/initialized — silently acknowledge
 			continue
 		}
 
@@ -135,13 +130,11 @@ func (s *Server) Run() (err error) {
 			start := time.Now()
 			Logger.Println("tool start:", p.Name)
 			res, err := RunWithTimeout(tool.Handler, p.Args)
-			dur := time.Since(start)
-			Logger.Println("tool end:", p.Name, "duration=", dur)
+			Logger.Println("tool end:", p.Name, "duration=", time.Since(start))
+
 			if err != nil {
 				s.respond(enc, req.ID, ToolResult{
-					Content: []ContentItem{
-						{Type: "text", Text: err.Error()},
-					},
+					Content: []ContentItem{{Type: "text", Text: err.Error()}},
 					IsError: true,
 				})
 				continue
@@ -152,25 +145,4 @@ func (s *Server) Run() (err error) {
 			s.respondErr(enc, req.ID, errMethodNotFound, "method not found: "+req.Method)
 		}
 	}
-
-	return
-}
-
-func (s *Server) listTools() []Tool {
-
-	keys := make([]string, 0, len(s.tools))
-
-	for k := range s.tools {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
-
-	list := make([]Tool, 0, len(keys))
-
-	for _, k := range keys {
-		list = append(list, s.tools[k].Tool)
-	}
-
-	return list
 }

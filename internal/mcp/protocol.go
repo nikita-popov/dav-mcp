@@ -1,6 +1,9 @@
 package mcp
 
-import "encoding/json"
+import (
+	"context"
+	"encoding/json"
+)
 
 type Request struct {
 	ID     any             `json:"id"`
@@ -46,3 +49,7 @@ type ContentItem struct {
 	Type string `json:"type"`
 	Text string `json:"text"`
 }
+
+// ToolHandler is the function signature for all MCP tool implementations.
+// ctx is cancelled when the tool timeout expires or the server shuts down.
+type ToolHandler func(ctx context.Context, args map[string]any) (any, error)

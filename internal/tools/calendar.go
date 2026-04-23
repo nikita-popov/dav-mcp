@@ -1,6 +1,8 @@
 package tools
 
 import (
+	"context"
+
 	"github.com/nikita-popov/dav-mcp/internal/config"
 	"github.com/nikita-popov/dav-mcp/internal/mcp"
 )
@@ -20,7 +22,12 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 			},
 			Required: []string{"url", "username", "password"},
 		},
-		func(args map[string]any) (any, error) {
+		func(ctx context.Context, args map[string]any) (any, error) {
+			if err := mcp.ValidateArgs(mcp.ArgSchema{
+				Required: []string{"url", "username", "password"},
+			}, args); err != nil {
+				return nil, err
+			}
 			// TODO: PROPFIND /.well-known/caldav, discover principal and calendars
 			return stub("calendar_connect"), nil
 		},
@@ -31,7 +38,7 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 		"calendar_reconnect",
 		"Reconnect to the CalDAV server using existing credentials from environment",
 		mcp.InputSchema{Type: "object"},
-		func(args map[string]any) (any, error) {
+		func(ctx context.Context, args map[string]any) (any, error) {
 			// TODO: re-use cfg.DAVURL, cfg.Username, cfg.Password
 			_ = cfg
 			return stub("calendar_reconnect"), nil
@@ -51,7 +58,13 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 			},
 			Required: []string{"start", "end"},
 		},
-		func(args map[string]any) (any, error) {
+		func(ctx context.Context, args map[string]any) (any, error) {
+			if err := mcp.ValidateArgs(mcp.ArgSchema{
+				Required: []string{"start", "end"},
+				Optional: []string{"calendar"},
+			}, args); err != nil {
+				return nil, err
+			}
 			// TODO: CalDAV REPORT with time-range filter
 			return stub("calendar_get_events"), nil
 		},
@@ -73,7 +86,13 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 			},
 			Required: []string{"summary", "start", "end"},
 		},
-		func(args map[string]any) (any, error) {
+		func(ctx context.Context, args map[string]any) (any, error) {
+			if err := mcp.ValidateArgs(mcp.ArgSchema{
+				Required: []string{"summary", "start", "end"},
+				Optional: []string{"description", "location", "calendar"},
+			}, args); err != nil {
+				return nil, err
+			}
 			// TODO: generate UID, build iCalendar VEVENT, PUT to server
 			return stub("calendar_create_event"), nil
 		},
@@ -95,7 +114,13 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 			},
 			Required: []string{"summary", "start", "end", "rrule"},
 		},
-		func(args map[string]any) (any, error) {
+		func(ctx context.Context, args map[string]any) (any, error) {
+			if err := mcp.ValidateArgs(mcp.ArgSchema{
+				Required: []string{"summary", "start", "end", "rrule"},
+				Optional: []string{"description", "calendar"},
+			}, args); err != nil {
+				return nil, err
+			}
 			// TODO: build VEVENT with RRULE property, PUT to server
 			return stub("calendar_create_recurring_event"), nil
 		},
@@ -113,7 +138,13 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 			},
 			Required: []string{"uid"},
 		},
-		func(args map[string]any) (any, error) {
+		func(ctx context.Context, args map[string]any) (any, error) {
+			if err := mcp.ValidateArgs(mcp.ArgSchema{
+				Required: []string{"uid"},
+				Optional: []string{"calendar"},
+			}, args); err != nil {
+				return nil, err
+			}
 			// TODO: PROPFIND to resolve href by UID, then DELETE
 			return stub("calendar_delete_event"), nil
 		},
@@ -130,7 +161,12 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 				"calendar":  {Type: "string", Description: "Calendar path (optional)"},
 			},
 		},
-		func(args map[string]any) (any, error) {
+		func(ctx context.Context, args map[string]any) (any, error) {
+			if err := mcp.ValidateArgs(mcp.ArgSchema{
+				Optional: []string{"completed", "calendar"},
+			}, args); err != nil {
+				return nil, err
+			}
 			// TODO: REPORT with comp-filter VTODO
 			return stub("calendar_get_todos"), nil
 		},
@@ -151,7 +187,13 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 			},
 			Required: []string{"summary"},
 		},
-		func(args map[string]any) (any, error) {
+		func(ctx context.Context, args map[string]any) (any, error) {
+			if err := mcp.ValidateArgs(mcp.ArgSchema{
+				Required: []string{"summary"},
+				Optional: []string{"due", "priority", "notes", "calendar"},
+			}, args); err != nil {
+				return nil, err
+			}
 			// TODO: build VTODO, PUT to server
 			return stub("calendar_create_todo"), nil
 		},
@@ -169,7 +211,13 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 			},
 			Required: []string{"uid"},
 		},
-		func(args map[string]any) (any, error) {
+		func(ctx context.Context, args map[string]any) (any, error) {
+			if err := mcp.ValidateArgs(mcp.ArgSchema{
+				Required: []string{"uid"},
+				Optional: []string{"calendar"},
+			}, args); err != nil {
+				return nil, err
+			}
 			// TODO: resolve href by UID, DELETE
 			return stub("calendar_delete_todo"), nil
 		},
@@ -187,7 +235,12 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 				"calendar": {Type: "string", Description: "Calendar path (optional)"},
 			},
 		},
-		func(args map[string]any) (any, error) {
+		func(ctx context.Context, args map[string]any) (any, error) {
+			if err := mcp.ValidateArgs(mcp.ArgSchema{
+				Optional: []string{"start", "end", "calendar"},
+			}, args); err != nil {
+				return nil, err
+			}
 			// TODO: REPORT with comp-filter VJOURNAL
 			return stub("calendar_get_journals"), nil
 		},
@@ -205,7 +258,13 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 			},
 			Required: []string{"uid"},
 		},
-		func(args map[string]any) (any, error) {
+		func(ctx context.Context, args map[string]any) (any, error) {
+			if err := mcp.ValidateArgs(mcp.ArgSchema{
+				Required: []string{"uid"},
+				Optional: []string{"calendar"},
+			}, args); err != nil {
+				return nil, err
+			}
 			// TODO: REPORT with UID filter or GET by href
 			return stub("calendar_get_journal"), nil
 		},
@@ -225,7 +284,13 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 			},
 			Required: []string{"summary"},
 		},
-		func(args map[string]any) (any, error) {
+		func(ctx context.Context, args map[string]any) (any, error) {
+			if err := mcp.ValidateArgs(mcp.ArgSchema{
+				Required: []string{"summary"},
+				Optional: []string{"description", "dtstart", "calendar"},
+			}, args); err != nil {
+				return nil, err
+			}
 			// TODO: build VJOURNAL, PUT to server
 			return stub("calendar_create_journal"), nil
 		},
@@ -243,7 +308,13 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 			},
 			Required: []string{"uid"},
 		},
-		func(args map[string]any) (any, error) {
+		func(ctx context.Context, args map[string]any) (any, error) {
+			if err := mcp.ValidateArgs(mcp.ArgSchema{
+				Required: []string{"uid"},
+				Optional: []string{"calendar"},
+			}, args); err != nil {
+				return nil, err
+			}
 			// TODO: resolve href by UID, DELETE
 			return stub("calendar_delete_journal"), nil
 		},

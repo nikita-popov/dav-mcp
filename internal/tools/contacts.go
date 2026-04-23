@@ -1,11 +1,14 @@
 package tools
 
 import (
+	"context"
+
 	"github.com/nikita-popov/dav-mcp/internal/config"
 	"github.com/nikita-popov/dav-mcp/internal/mcp"
 )
 
 func RegisterContacts(s *mcp.Server, cfg config.Config) {
+	_ = cfg // will be used when real DAV client is wired in
 
 	// contacts_list
 	s.AddTool(
@@ -17,9 +20,13 @@ func RegisterContacts(s *mcp.Server, cfg config.Config) {
 				"addressbook": {Type: "string", Description: "Address book path (optional, defaults to primary)"},
 			},
 		},
-		func(args map[string]any) (any, error) {
+		func(ctx context.Context, args map[string]any) (any, error) {
+			if err := mcp.ValidateArgs(mcp.ArgSchema{
+				Optional: []string{"addressbook"},
+			}, args); err != nil {
+				return nil, err
+			}
 			// TODO: CardDAV PROPFIND depth:1 on address book collection
-			_ = cfg
 			return stub("contacts_list"), nil
 		},
 	)
@@ -36,7 +43,13 @@ func RegisterContacts(s *mcp.Server, cfg config.Config) {
 			},
 			Required: []string{"query"},
 		},
-		func(args map[string]any) (any, error) {
+		func(ctx context.Context, args map[string]any) (any, error) {
+			if err := mcp.ValidateArgs(mcp.ArgSchema{
+				Required: []string{"query"},
+				Optional: []string{"addressbook"},
+			}, args); err != nil {
+				return nil, err
+			}
 			// TODO: addressbook-query REPORT with text-match filter
 			return stub("contacts_search"), nil
 		},
@@ -54,7 +67,13 @@ func RegisterContacts(s *mcp.Server, cfg config.Config) {
 			},
 			Required: []string{"uid"},
 		},
-		func(args map[string]any) (any, error) {
+		func(ctx context.Context, args map[string]any) (any, error) {
+			if err := mcp.ValidateArgs(mcp.ArgSchema{
+				Required: []string{"uid"},
+				Optional: []string{"addressbook"},
+			}, args); err != nil {
+				return nil, err
+			}
 			// TODO: GET /{addressbook}/{uid}.vcf
 			return stub("contacts_get"), nil
 		},
@@ -76,7 +95,13 @@ func RegisterContacts(s *mcp.Server, cfg config.Config) {
 			},
 			Required: []string{"name"},
 		},
-		func(args map[string]any) (any, error) {
+		func(ctx context.Context, args map[string]any) (any, error) {
+			if err := mcp.ValidateArgs(mcp.ArgSchema{
+				Required: []string{"name"},
+				Optional: []string{"email", "phone", "org", "notes", "addressbook"},
+			}, args); err != nil {
+				return nil, err
+			}
 			// TODO: generate UID, build vCard 3.0/4.0, PUT to server
 			return stub("contacts_create"), nil
 		},
