@@ -146,3 +146,16 @@ func (s *Server) Run() error {
 		}
 	}
 }
+
+func (s *Server) listTools() []Tool {
+	keys := make([]string, 0, len(s.tools))
+	for k := range s.tools {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	list := make([]Tool, 0, len(keys))
+	for _, k := range keys {
+		list = append(list, s.tools[k].Tool)
+	}
+	return list
+}
