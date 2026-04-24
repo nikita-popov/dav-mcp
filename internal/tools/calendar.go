@@ -376,12 +376,3 @@ func formatEvents(events []ical.ParsedEvent, start, end time.Time) string {
 	}
 	return b.String()
 }
-
-func stub(name string) mcp.ToolResult {
-	return mcp.ToolResult{
-		Content: []mcp.ContentItem{{
-			Type: "text",
-			Text: fmt.Sprintf("%s: not yet implemented", name),
-		}},
-	}
-}
