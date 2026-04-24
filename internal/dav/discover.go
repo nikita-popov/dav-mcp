@@ -9,6 +9,25 @@ import (
 type Collection struct {
 	Href        string
 	DisplayName string
+	// Components lists supported iCalendar component types (VEVENT, VTODO, …).
+	// Empty means the server did not advertise supported-calendar-component-set.
+	Components []string
+}
+
+// Supports reports whether the collection advertises support for the given
+// component type (case-insensitive). Returns true when Components is empty
+// (server did not advertise anything — assume all are supported).
+func (col Collection) Supports(comp string) bool {
+	if len(col.Components) == 0 {
+		return true
+	}
+	upper := strings.ToUpper(comp)
+	for _, c := range col.Components {
+		if strings.ToUpper(c) == upper {
+			return true
+		}
+	}
+	return false
 }
 
 // DiscoverPrincipal fetches the current-user-principal URL from the server root.
@@ -72,13 +91,14 @@ func DiscoverAddressbookHome(ctx context.Context, c *Client, principal string) (
 }
 
 // DiscoverCollections lists child collections under path (depth:1).
-// Skips the path itself and non-collection resources.
+// For each calendar collection it also fetches supported-calendar-component-set.
 func DiscoverCollections(ctx context.Context, c *Client, path string) ([]Collection, error) {
 	body := []byte(`<?xml version="1.0" encoding="UTF-8"?>
-<propfind xmlns="DAV:">
+<propfind xmlns="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
   <prop>
     <displayname/>
     <resourcetype/>
+    <c:supported-calendar-component-set/>
   </prop>
 </propfind>`)
 	ms, err := c.Propfind(ctx, path, "1", body)
@@ -87,7 +107,6 @@ func DiscoverCollections(ctx context.Context, c *Client, path string) ([]Collect
 	}
 	var out []Collection
 	for _, r := range ms.Responses {
-		// skip the collection itself
 		if strings.TrimRight(r.Href, "/") == strings.TrimRight(path, "/") {
 			continue
 		}
@@ -98,6 +117,7 @@ func DiscoverCollections(ctx context.Context, c *Client, path string) ([]Collect
 			out = append(out, Collection{
 				Href:        normalizeHref(r.Href),
 				DisplayName: ps.Prop.DisplayName,
+				Components:  ps.Prop.SupportedCalendarComponentSet.Names(),
 			})
 		}
 	}

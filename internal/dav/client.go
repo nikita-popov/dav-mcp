@@ -191,14 +191,15 @@ type Propstat struct {
 }
 
 type Prop struct {
-	DisplayName           string       `xml:"displayname,omitempty"`
-	ETag                  string       `xml:"getetag,omitempty"`
-	CalendarData          string       `xml:"calendar-data,omitempty"`
-	AddressData           string       `xml:"address-data,omitempty"`
-	ResourceType          ResourceType `xml:"resourcetype"`
-	CurrentUserPrincipal  HrefWrap     `xml:"current-user-principal"`
-	CalendarHomeSet       HrefWrap     `xml:"calendar-home-set"`
-	AddressbookHomeSet    HrefWrap     `xml:"addressbook-home-set"`
+	DisplayName                    string                       `xml:"displayname,omitempty"`
+	ETag                           string                       `xml:"getetag,omitempty"`
+	CalendarData                   string                       `xml:"calendar-data,omitempty"`
+	AddressData                    string                       `xml:"address-data,omitempty"`
+	ResourceType                   ResourceType                 `xml:"resourcetype"`
+	CurrentUserPrincipal           HrefWrap                     `xml:"current-user-principal"`
+	CalendarHomeSet                HrefWrap                     `xml:"calendar-home-set"`
+	AddressbookHomeSet             HrefWrap                     `xml:"addressbook-home-set"`
+	SupportedCalendarComponentSet SupportedCalendarComponentSet `xml:"supported-calendar-component-set"`
 }
 
 type HrefWrap struct {
@@ -206,11 +207,33 @@ type HrefWrap struct {
 }
 
 type ResourceType struct {
-	Collection *struct{} `xml:"collection"`
-	Calendar   *struct{} `xml:"calendar"`
+	Collection  *struct{} `xml:"collection"`
+	Calendar    *struct{} `xml:"calendar"`
 	Addressbook *struct{} `xml:"addressbook"`
 }
 
 func (r ResourceType) IsCollection() bool {
 	return r.Collection != nil
+}
+
+// SupportedCalendarComponentSet holds the list of supported component types
+// returned by the server for a calendar collection.
+type SupportedCalendarComponentSet struct {
+	Comps []CalComp `xml:"comp"`
+}
+
+// CalComp is a single <comp name="VEVENT"/> element.
+type CalComp struct {
+	Name string `xml:"name,attr"`
+}
+
+// Names returns the component names as a string slice (e.g. ["VEVENT","VTODO"]).
+func (s SupportedCalendarComponentSet) Names() []string {
+	out := make([]string, 0, len(s.Comps))
+	for _, c := range s.Comps {
+		if c.Name != "" {
+			out = append(out, c.Name)
+		}
+	}
+	return out
 }
