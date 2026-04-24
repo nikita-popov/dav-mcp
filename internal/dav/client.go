@@ -3,6 +3,7 @@ package dav
 import (
 	"bytes"
 	"context"
+	"encoding/xml"
 	"fmt"
 	"io"
 	"net/http"
@@ -15,7 +16,7 @@ import (
 
 // Client is a thin authenticated WebDAV/CalDAV/CardDAV HTTP client.
 type Client struct {
-	BaseURL  string
+	BaseURL    string
 	httpClient *http.Client
 	username   string
 	password   string
@@ -31,16 +32,22 @@ func New(rawURL, username, password string) (*Client, error) {
 		return nil, fmt.Errorf("DAV URL must use http or https, got %q", u.Scheme)
 	}
 	return &Client{
-		BaseURL:  strings.TrimRight(rawURL, "/"),
+		BaseURL:    strings.TrimRight(rawURL, "/"),
 		httpClient: &http.Client{Timeout: 30 * time.Second},
 		username:   username,
 		password:   password,
 	}, nil
 }
 
-// Do executes a DAV request with Basic Auth. The body (if non-nil) is read once.
+// Do executes a DAV request with Basic Auth.
 func (c *Client) Do(ctx context.Context, method, path string, headers map[string]string, body []byte) (*http.Response, []byte, error) {
-	target := c.BaseURL + path
+	// absolute URLs pass through; relative paths are joined to BaseURL
+	var target string
+	if strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") {
+		target = path
+	} else {
+		target = c.BaseURL + "/" + strings.TrimLeft(path, "/")
+	}
 
 	var bodyReader io.Reader
 	if len(body) > 0 {
@@ -80,12 +87,79 @@ func (c *Client) Do(ctx context.Context, method, path string, headers map[string
 	return resp, respBody, nil
 }
 
-// Resolve returns an absolute URL by joining path onto BaseURL.
-func (c *Client) Resolve(path string) string {
-	if strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") {
-		return path
+// Propfind sends a PROPFIND request and decodes the multistatus response.
+// depth should be "0", "1", or "infinity".
+func (c *Client) Propfind(ctx context.Context, path, depth string, body []byte) (*Multistatus, error) {
+	resp, data, err := c.Do(ctx, "PROPFIND", path, map[string]string{
+		"Content-Type": "application/xml; charset=utf-8",
+		"Depth":        depth,
+	}, body)
+	if err != nil {
+		return nil, err
 	}
-	return c.BaseURL + "/" + strings.TrimLeft(path, "/")
+	if resp.StatusCode != 207 {
+		return nil, mapHTTPError(resp.StatusCode, path)
+	}
+	var ms Multistatus
+	if err := xml.Unmarshal(data, &ms); err != nil {
+		return nil, fmt.Errorf("propfind decode: %w", err)
+	}
+	return &ms, nil
+}
+
+// Report sends a REPORT request and decodes the multistatus response.
+func (c *Client) Report(ctx context.Context, path string, body []byte) (*Multistatus, error) {
+	resp, data, err := c.Do(ctx, "REPORT", path, map[string]string{
+		"Content-Type": "application/xml; charset=utf-8",
+		"Depth":        "1",
+	}, body)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != 207 {
+		return nil, mapHTTPError(resp.StatusCode, path)
+	}
+	var ms Multistatus
+	if err := xml.Unmarshal(data, &ms); err != nil {
+		return nil, fmt.Errorf("report decode: %w", err)
+	}
+	return &ms, nil
+}
+
+// Put stores data at path with the given content-type.
+// If etag is empty, If-None-Match:* is sent (safe create).
+// If etag is non-empty, If-Match:<etag> is sent (safe update).
+func (c *Client) Put(ctx context.Context, path, contentType, etag string, body []byte) error {
+	headers := map[string]string{"Content-Type": contentType}
+	if etag == "" {
+		headers["If-None-Match"] = "*"
+	} else {
+		headers["If-Match"] = etag
+	}
+	resp, _, err := c.Do(ctx, "PUT", path, headers, body)
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return mapHTTPError(resp.StatusCode, path)
+	}
+	return nil
+}
+
+// Delete removes a resource. If etag is non-empty, If-Match:<etag> is sent.
+func (c *Client) Delete(ctx context.Context, path, etag string) error {
+	headers := map[string]string{}
+	if etag != "" {
+		headers["If-Match"] = etag
+	}
+	resp, _, err := c.Do(ctx, "DELETE", path, headers, nil)
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode != 204 && resp.StatusCode != 200 {
+		return mapHTTPError(resp.StatusCode, path)
+	}
+	return nil
 }
 
 // truncate caps a string for log output.
