@@ -38,8 +38,8 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 
 			var b strings.Builder
 			for _, acc := range accounts {
-				sess, err := dav.Get(acc.Name)
-				if err != nil {
+				sess := dav.Get(acc.Name)
+				if sess == nil {
 					fmt.Fprintf(&b, "Account %q: not connected (use calendar_reconnect)\n", acc.Name)
 					continue
 				}
