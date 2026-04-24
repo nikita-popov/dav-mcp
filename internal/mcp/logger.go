@@ -1,11 +1,11 @@
 package mcp
 
 import (
+	"fmt"
 	"log"
 	"os"
 )
 
-// Logger used across MCP server. Output goes to stderr
-// so it doesn't interfere with JSON-RPC stdout channel.
-
-var Logger = log.New(os.Stderr, "dav-mcp ", log.LstdFlags)
+// Logger writes to stderr with timestamp + pid so you can correlate
+// entries when multiple dav-mcp processes run side-by-side.
+var Logger = log.New(os.Stderr, fmt.Sprintf("dav-mcp[%d] ", os.Getpid()), log.LstdFlags)
