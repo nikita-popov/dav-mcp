@@ -6,8 +6,8 @@ import (
 )
 
 // Register wires all tool groups into the MCP server.
-func Register(s *mcp.Server) {
-	cfg := config.Load()
+// cfg is loaded once in main and passed down so env is read exactly once.
+func Register(s *mcp.Server, cfg config.Config) {
 	RegisterCalendar(s, cfg)
 	RegisterContacts(s, cfg)
 }
