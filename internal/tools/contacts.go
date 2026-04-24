@@ -16,35 +16,35 @@ func RegisterContacts(s *mcp.Server, cfg config.Config) {
 	// contacts_list
 	s.AddTool(
 		"contacts_list",
-		"List all contacts from the CardDAV address book. Requires an active session (call calendar_connect first).",
+		"List all contacts from the CardDAV address book.",
 		mcp.InputSchema{
 			Type: "object",
 			Properties: map[string]mcp.Property{
 				"addressbook": {Type: "string", Description: "Address book path (optional, defaults to primary)"},
+				"account":     {Type: "string", Description: "Account name (optional, defaults to primary account)"},
 			},
 		},
 		func(ctx context.Context, args map[string]any) (any, error) {
 			if err := mcp.ValidateArgs(mcp.ArgSchema{
-				Optional: []string{"addressbook"},
+				Optional: []string{"addressbook", "account"},
 			}, args); err != nil {
 				return nil, err
 			}
-
-			sess, err := session(ctx, cfg)
+			sess, err := session(ctx, cfg, strArg(args, "account"))
 			if err != nil {
 				return nil, err
 			}
-
+			if result, ok := requireCardDAV(sess); !ok {
+				return result, nil
+			}
 			abPath, err := resolveAB(ctx, sess, strArg(args, "addressbook"))
 			if err != nil {
 				return nil, err
 			}
-
 			contacts, err := loadContacts(ctx, sess.Client, abPath)
 			if err != nil {
 				return nil, err
 			}
-
 			return mcp.ToolResult{
 				Content: []mcp.ContentItem{{
 					Type: "text",
@@ -63,33 +63,33 @@ func RegisterContacts(s *mcp.Server, cfg config.Config) {
 			Properties: map[string]mcp.Property{
 				"uid":         {Type: "string", Description: "Contact UID"},
 				"addressbook": {Type: "string", Description: "Address book path (optional)"},
+				"account":     {Type: "string", Description: "Account name (optional)"},
 			},
 			Required: []string{"uid"},
 		},
 		func(ctx context.Context, args map[string]any) (any, error) {
 			if err := mcp.ValidateArgs(mcp.ArgSchema{
 				Required: []string{"uid"},
-				Optional: []string{"addressbook"},
+				Optional: []string{"addressbook", "account"},
 			}, args); err != nil {
 				return nil, err
 			}
-
-			sess, err := session(ctx, cfg)
+			sess, err := session(ctx, cfg, strArg(args, "account"))
 			if err != nil {
 				return nil, err
 			}
-
+			if result, ok := requireCardDAV(sess); !ok {
+				return result, nil
+			}
 			abPath, err := resolveAB(ctx, sess, strArg(args, "addressbook"))
 			if err != nil {
 				return nil, err
 			}
-
 			uid := strArg(args, "uid")
 			contacts, err := loadContacts(ctx, sess.Client, abPath)
 			if err != nil {
 				return nil, err
 			}
-
 			for _, c := range contacts {
 				if c.UID == uid {
 					return mcp.ToolResult{
@@ -113,40 +113,39 @@ func RegisterContacts(s *mcp.Server, cfg config.Config) {
 			Properties: map[string]mcp.Property{
 				"query":       {Type: "string", Description: "Search string"},
 				"addressbook": {Type: "string", Description: "Address book path (optional)"},
+				"account":     {Type: "string", Description: "Account name (optional)"},
 			},
 			Required: []string{"query"},
 		},
 		func(ctx context.Context, args map[string]any) (any, error) {
 			if err := mcp.ValidateArgs(mcp.ArgSchema{
 				Required: []string{"query"},
-				Optional: []string{"addressbook"},
+				Optional: []string{"addressbook", "account"},
 			}, args); err != nil {
 				return nil, err
 			}
-
-			sess, err := session(ctx, cfg)
+			sess, err := session(ctx, cfg, strArg(args, "account"))
 			if err != nil {
 				return nil, err
 			}
-
+			if result, ok := requireCardDAV(sess); !ok {
+				return result, nil
+			}
 			abPath, err := resolveAB(ctx, sess, strArg(args, "addressbook"))
 			if err != nil {
 				return nil, err
 			}
-
 			q := strings.ToLower(strArg(args, "query"))
 			all, err := loadContacts(ctx, sess.Client, abPath)
 			if err != nil {
 				return nil, err
 			}
-
 			var matched []vcard.Contact
 			for _, c := range all {
 				if contactMatches(c, q) {
 					matched = append(matched, c)
 				}
 			}
-
 			var b strings.Builder
 			fmt.Fprintf(&b, "Search %q in %s: %d result(s)\n", q, abPath, len(matched))
 			for _, c := range matched {
@@ -171,27 +170,28 @@ func RegisterContacts(s *mcp.Server, cfg config.Config) {
 				"org":         {Type: "string", Description: "Organisation (optional)"},
 				"note":        {Type: "string", Description: "Note (optional)"},
 				"addressbook": {Type: "string", Description: "Address book path (optional)"},
+				"account":     {Type: "string", Description: "Account name (optional)"},
 			},
 			Required: []string{"name"},
 		},
 		func(ctx context.Context, args map[string]any) (any, error) {
 			if err := mcp.ValidateArgs(mcp.ArgSchema{
 				Required: []string{"name"},
-				Optional: []string{"email", "phone", "org", "note", "addressbook"},
+				Optional: []string{"email", "phone", "org", "note", "addressbook", "account"},
 			}, args); err != nil {
 				return nil, err
 			}
-
-			sess, err := session(ctx, cfg)
+			sess, err := session(ctx, cfg, strArg(args, "account"))
 			if err != nil {
 				return nil, err
 			}
-
+			if result, ok := requireCardDAV(sess); !ok {
+				return result, nil
+			}
 			abPath, err := resolveAB(ctx, sess, strArg(args, "addressbook"))
 			if err != nil {
 				return nil, err
 			}
-
 			c := vcard.Contact{
 				FN:    strArg(args, "name"),
 				Email: strArg(args, "email"),
@@ -201,11 +201,9 @@ func RegisterContacts(s *mcp.Server, cfg config.Config) {
 			}
 			vcf := vcard.Build(c)
 			uid := vcard.ParseUID(vcf)
-
 			if err := dav.PutContact(ctx, sess.Client, abPath, uid, vcf, ""); err != nil {
 				return nil, fmt.Errorf("create contact: %w", err)
 			}
-
 			return mcp.ToolResult{
 				Content: []mcp.ContentItem{{
 					Type: "text",
@@ -222,19 +220,20 @@ func RegisterContacts(s *mcp.Server, cfg config.Config) {
 		mcp.InputSchema{
 			Type: "object",
 			Properties: map[string]mcp.Property{
-				"uid":   {Type: "string", Description: "Contact UID"},
-				"name":  {Type: "string", Description: "New full name (optional)"},
-				"email": {Type: "string", Description: "New email (optional)"},
-				"phone": {Type: "string", Description: "New phone (optional)"},
-				"org":   {Type: "string", Description: "New organisation (optional)"},
-				"note":  {Type: "string", Description: "New note (optional)"},
+				"uid":     {Type: "string", Description: "Contact UID"},
+				"name":    {Type: "string", Description: "New full name (optional)"},
+				"email":   {Type: "string", Description: "New email (optional)"},
+				"phone":   {Type: "string", Description: "New phone (optional)"},
+				"org":     {Type: "string", Description: "New organisation (optional)"},
+				"note":    {Type: "string", Description: "New note (optional)"},
+				"account": {Type: "string", Description: "Account name (optional)"},
 			},
 			Required: []string{"uid"},
 		},
 		func(ctx context.Context, args map[string]any) (any, error) {
 			if err := mcp.ValidateArgs(mcp.ArgSchema{
 				Required: []string{"uid"},
-				Optional: []string{"name", "email", "phone", "org", "note"},
+				Optional: []string{"name", "email", "phone", "org", "note", "account"},
 			}, args); err != nil {
 				return nil, err
 			}
@@ -249,13 +248,15 @@ func RegisterContacts(s *mcp.Server, cfg config.Config) {
 		mcp.InputSchema{
 			Type: "object",
 			Properties: map[string]mcp.Property{
-				"uid": {Type: "string", Description: "Contact UID"},
+				"uid":     {Type: "string", Description: "Contact UID"},
+				"account": {Type: "string", Description: "Account name (optional)"},
 			},
 			Required: []string{"uid"},
 		},
 		func(ctx context.Context, args map[string]any) (any, error) {
 			if err := mcp.ValidateArgs(mcp.ArgSchema{
 				Required: []string{"uid"},
+				Optional: []string{"account"},
 			}, args); err != nil {
 				return nil, err
 			}
@@ -304,7 +305,6 @@ func contactMatches(c vcard.Contact, q string) bool {
 		strings.Contains(strings.ToLower(c.Notes), q)
 }
 
-// strArg safely extracts a string argument.
 func strArg(args map[string]any, key string) string {
 	v, _ := args[key].(string)
 	return v

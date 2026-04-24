@@ -16,7 +16,6 @@ type Session struct {
 	AddressbookHome string
 	Calendars       []Collection
 	// Caps is the union of all component types supported across all calendars.
-	// Use Supports() to check before performing component-specific operations.
 	Caps Capabilities
 }
 
@@ -39,15 +38,16 @@ func (caps Capabilities) Supports(comp string) bool {
 	return caps.Components[strings.ToUpper(comp)]
 }
 
+// store is a map of account name → Session, protected by a RW mutex.
 var (
-	mu      sync.RWMutex
-	current *Session
+	mu    sync.RWMutex
+	store = map[string]*Session{}
 )
 
-// Connect creates a DAV client, runs full discovery, stores the result as the
-// active session, and returns it.
-func Connect(ctx context.Context, rawURL, username, password string) (*Session, error) {
-	mcp.Logger.Printf("dav: connecting to %s as %s", rawURL, username)
+// Connect creates a DAV client, runs full discovery, stores the result
+// under the given account name, and returns it.
+func Connect(ctx context.Context, name, rawURL, username, password string) (*Session, error) {
+	mcp.Logger.Printf("dav: connecting account=%q url=%s", name, rawURL)
 
 	c, err := New(rawURL, username, password)
 	if err != nil {
@@ -58,30 +58,29 @@ func Connect(ctx context.Context, rawURL, username, password string) (*Session, 
 	if err != nil {
 		return nil, fmt.Errorf("dav discover principal: %w", err)
 	}
-	mcp.Debugf("dav: principal=%s", principal)
+	mcp.Debugf("dav[%s]: principal=%s", name, principal)
 
 	calHome, err := DiscoverCalendarHome(ctx, c, principal)
 	if err != nil {
 		return nil, fmt.Errorf("dav discover calendar home: %w", err)
 	}
-	mcp.Debugf("dav: calendar-home=%s", calHome)
+	mcp.Debugf("dav[%s]: calendar-home=%s", name, calHome)
 
 	calendars, err := DiscoverCollections(ctx, c, calHome)
 	if err != nil {
 		return nil, fmt.Errorf("dav discover calendars: %w", err)
 	}
-	mcp.Debugf("dav: found %d calendars", len(calendars))
+	mcp.Debugf("dav[%s]: found %d calendars", name, len(calendars))
 
-	// Build capability map from the union of all calendar collections.
 	caps := buildCaps(calendars)
-	mcp.Logger.Printf("dav: supported components: %v", capsList(caps))
+	mcp.Logger.Printf("dav[%s]: supported components: %v", name, capsList(caps))
 
 	// addressbook-home is optional
 	abHome, err := DiscoverAddressbookHome(ctx, c, principal)
 	if err != nil {
-		mcp.Debugf("dav: addressbook-home not found: %v", err)
+		mcp.Debugf("dav[%s]: addressbook-home not found: %v", name, err)
 	} else {
-		mcp.Debugf("dav: addressbook-home=%s", abHome)
+		mcp.Debugf("dav[%s]: addressbook-home=%s", name, abHome)
 		caps.CardDAV = true
 	}
 
@@ -92,17 +91,52 @@ func Connect(ctx context.Context, rawURL, username, password string) (*Session, 
 		Calendars:       calendars,
 		Caps:            caps,
 	}
-	setSession(s)
-	mcp.Logger.Printf("dav: connected — %d calendars, carddav=%v", len(calendars), caps.CardDAV)
+	set(name, s)
+	mcp.Logger.Printf("dav[%s]: connected — %d calendars, carddav=%v", name, len(calendars), caps.CardDAV)
 	return s, nil
 }
 
-// buildCaps constructs a Capabilities from the union of all collection component sets.
+// Get returns the session for the given account name.
+// An empty name returns the "default" account, or the first stored session.
+// Returns nil if no session exists for the name.
+func Get(name string) *Session {
+	mu.RLock()
+	defer mu.RUnlock()
+	if name == "" {
+		if s, ok := store["default"]; ok {
+			return s
+		}
+		// return any first entry
+		for _, s := range store {
+			return s
+		}
+		return nil
+	}
+	return store[name]
+}
+
+// Names returns all account names that have an active session.
+func Names() []string {
+	mu.RLock()
+	defer mu.RUnlock()
+	out := make([]string, 0, len(store))
+	for k := range store {
+		out = append(out, k)
+	}
+	return out
+}
+
+func set(name string, s *Session) {
+	mu.Lock()
+	defer mu.Unlock()
+	store[name] = s
+}
+
 func buildCaps(cols []Collection) Capabilities {
 	comps := make(map[string]bool)
 	for _, col := range cols {
-		for _, name := range col.Components {
-			comps[strings.ToUpper(name)] = true
+		for _, n := range col.Components {
+			comps[strings.ToUpper(n)] = true
 		}
 	}
 	return Capabilities{Components: comps}
@@ -114,17 +148,4 @@ func capsList(caps Capabilities) []string {
 		out = append(out, k)
 	}
 	return out
-}
-
-// Get returns the active session, or nil if Connect has not been called yet.
-func Get() *Session {
-	mu.RLock()
-	defer mu.RUnlock()
-	return current
-}
-
-func setSession(s *Session) {
-	mu.Lock()
-	defer mu.Unlock()
-	current = s
 }

@@ -22,22 +22,44 @@ make check    # fmt + vet + test
 
 ## Configuration
 
-All configuration is via environment variables:
+### Single account
 
-| Variable       | Required | Description                        |
-|----------------|----------|------------------------------------|
-| `DAV_URL`      | yes      | Base URL of the DAV server         |
-| `DAV_USERNAME` | yes      | Username for Basic Auth            |
-| `DAV_PASSWORD` | yes      | Password for Basic Auth            |
+Set three environment variables and the server auto-connects on the first
+tool call — no explicit `calendar_connect` needed.
+
+| Variable       | Required | Description                         |
+|----------------|----------|-------------------------------------|
+| `DAV_URL`      | yes      | Base URL of the DAV server          |
+| `DAV_USERNAME` | yes      | Username for Basic Auth             |
+| `DAV_PASSWORD` | yes      | Password for Basic Auth             |
 | `DAV_DEBUG`    | no       | Set to `1` for verbose HTTP logging |
 
-With `DAV_URL`, `DAV_USERNAME`, and `DAV_PASSWORD` set, the server
-auto-connects on the first tool call — no explicit `calendar_connect`
-needed.
+### Multiple accounts (`DAV_ACCOUNTS`)
+
+Set `DAV_ACCOUNTS` to a JSON array of account objects. When present, it
+takes priority over `DAV_URL` / `DAV_USERNAME` / `DAV_PASSWORD`.
+
+```sh
+export DAV_ACCOUNTS='[
+  {"name": "personal", "url": "https://cloud.example.com",  "username": "alice", "password": "s3cr3t"},
+  {"name": "work",     "url": "https://dav.corp.example",   "username": "alice@corp", "password": "w0rkp@ss"}
+]'
+```
+
+| Field      | Required | Description                              |
+|------------|----------|------------------------------------------|
+| `name`     | no       | Account label used in tool calls; defaults to `account1`, `account2`, … |
+| `url`      | yes      | Base URL of the DAV server               |
+| `username` | no       | Username for Basic Auth                  |
+| `password` | no       | Password for Basic Auth                  |
+
+All accounts are connected in parallel at startup. Pass `"account": "work"`
+to any tool to target a specific account. Omitting `account` selects the
+first configured account.
 
 ## MCP Client Setup
 
-### Claude Desktop (`claude_desktop_config.json`)
+### Single account — Claude Desktop (`claude_desktop_config.json`)
 
 ```json
 {
@@ -48,6 +70,21 @@ needed.
         "DAV_URL": "https://dav.example.com",
         "DAV_USERNAME": "alice",
         "DAV_PASSWORD": "secret"
+      }
+    }
+  }
+}
+```
+
+### Multiple accounts — Claude Desktop
+
+```json
+{
+  "mcpServers": {
+    "dav": {
+      "command": "/path/to/bin/dav-mcp",
+      "env": {
+        "DAV_ACCOUNTS": "[{\"name\":\"personal\",\"url\":\"https://cloud.example.com\",\"username\":\"alice\",\"password\":\"s3cr3t\"},{\"name\":\"work\",\"url\":\"https://dav.corp.example\",\"username\":\"alice@corp\",\"password\":\"w0rkp@ss\"}]"
       }
     }
   }
@@ -62,9 +99,7 @@ needed.
     "dav": {
       "command": "/path/to/bin/dav-mcp",
       "env": {
-        "DAV_URL": "https://dav.example.com",
-        "DAV_USERNAME": "alice",
-        "DAV_PASSWORD": "secret"
+        "DAV_ACCOUNTS": "[{\"name\":\"personal\",\"url\":\"https://cloud.example.com\",\"username\":\"alice\",\"password\":\"s3cr3t\"},{\"name\":\"work\",\"url\":\"https://dav.corp.example\",\"username\":\"alice@corp\",\"password\":\"w0rkp@ss\"}]"
       }
     }
   }
@@ -73,12 +108,15 @@ needed.
 
 ## Tools
 
+Every tool accepts an optional `"account"` parameter to target a specific
+configured account. When omitted, the first (primary) account is used.
+
 ### Calendar (CalDAV)
 
 | Tool | Status | Description |
 |------|--------|-------------|
 | `calendar_connect` | ✅ | Connect to a CalDAV server and discover calendars |
-| `calendar_reconnect` | ✅ | Reconnect using credentials from environment variables |
+| `calendar_reconnect` | ✅ | Reconnect one or all accounts from environment config |
 | `calendar_get_events` | ✅ | List events in a time range |
 | `calendar_create_event` | ✅ | Create a new event |
 | `calendar_create_recurring_event` | 🚧 | Create a recurring event with RRULE |
@@ -98,6 +136,17 @@ needed.
 
 ✅ implemented · 🚧 stub (not yet implemented)
 
+## Server Capabilities
+
+During connection, dav-mcp queries `supported-calendar-component-set` for
+each calendar collection. Tools that require a component type the server
+does not advertise return an explanatory message instead of attempting the
+operation:
+
+```
+VTODO is not supported by this CalDAV server.
+```
+
 ## Debugging
 
 Enable verbose HTTP logging to stderr:
@@ -106,15 +155,12 @@ Enable verbose HTTP logging to stderr:
 DAV_DEBUG=1 DAV_URL=https://dav.example.com DAV_USERNAME=alice DAV_PASSWORD=secret ./bin/dav-mcp
 ```
 
-With `DAV_DEBUG=1` the server logs every HTTP request and response body
-(truncated at 2 KB / 4 KB respectively) to stderr.
-
 ## Project Layout
 
 ```
 cmd/dav-mcp/      entry point
 internal/
-  config/         env-based configuration
+  config/         env-based configuration (DAV_URL / DAV_ACCOUNTS)
   dav/            WebDAV HTTP client (Propfind, Report, Put, Delete)
   ical/           iCalendar builder and parser
   mcp/            MCP protocol (stdio transport, JSON-RPC 2.0)

@@ -24,27 +24,33 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 				"url":      {Type: "string", Description: "CalDAV server URL"},
 				"username": {Type: "string", Description: "Username"},
 				"password": {Type: "string", Description: "Password"},
+				"account":  {Type: "string", Description: "Account name to store this connection under (optional, defaults to \"default\")"},
 			},
 			Required: []string{"url", "username", "password"},
 		},
 		func(ctx context.Context, args map[string]any) (any, error) {
 			if err := mcp.ValidateArgs(mcp.ArgSchema{
 				Required: []string{"url", "username", "password"},
+				Optional: []string{"account"},
 			}, args); err != nil {
 				return nil, err
 			}
 			rawURL, _ := args["url"].(string)
 			username, _ := args["username"].(string)
 			password, _ := args["password"].(string)
+			accName := strArg(args, "account")
+			if accName == "" {
+				accName = "default"
+			}
 
-			session, err := dav.Connect(ctx, rawURL, username, password)
+			sess, err := dav.Connect(ctx, accName, rawURL, username, password)
 			if err != nil {
 				return nil, err
 			}
 			return mcp.ToolResult{
 				Content: []mcp.ContentItem{{
 					Type: "text",
-					Text: formatCalendars(session),
+					Text: formatCalendars(accName, sess),
 				}},
 			}, nil
 		},
@@ -53,21 +59,39 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 	// calendar_reconnect
 	s.AddTool(
 		"calendar_reconnect",
-		"Reconnect to the CalDAV server using credentials from environment variables (DAV_URL, DAV_USERNAME, DAV_PASSWORD).",
-		mcp.InputSchema{Type: "object"},
+		"Reconnect one or all accounts using credentials from environment variables (DAV_URL / DAV_ACCOUNTS).",
+		mcp.InputSchema{
+			Type: "object",
+			Properties: map[string]mcp.Property{
+				"account": {Type: "string", Description: "Account name to reconnect (optional, reconnects all if omitted)"},
+			},
+		},
 		func(ctx context.Context, args map[string]any) (any, error) {
-			if cfg.DAVURL == "" {
-				return nil, fmt.Errorf("DAV_URL is not set")
+			accName := strArg(args, "account")
+
+			accounts := cfg.Accounts
+			if accName != "" {
+				acc, err := cfg.Account(accName)
+				if err != nil {
+					return nil, err
+				}
+				accounts = []config.Account{acc}
 			}
-			session, err := dav.Connect(ctx, cfg.DAVURL, cfg.Username, cfg.Password)
-			if err != nil {
-				return nil, err
+			if len(accounts) == 0 {
+				return nil, fmt.Errorf("no accounts configured")
+			}
+
+			var b strings.Builder
+			for _, acc := range accounts {
+				sess, err := dav.Connect(ctx, acc.Name, acc.URL, acc.Username, acc.Password)
+				if err != nil {
+					fmt.Fprintf(&b, "account %q: connect error: %v\n", acc.Name, err)
+					continue
+				}
+				b.WriteString(formatCalendars(acc.Name, sess))
 			}
 			return mcp.ToolResult{
-				Content: []mcp.ContentItem{{
-					Type: "text",
-					Text: formatCalendars(session),
-				}},
+				Content: []mcp.ContentItem{{Type: "text", Text: b.String()}},
 			}, nil
 		},
 	)
@@ -75,27 +99,28 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 	// calendar_get_events
 	s.AddTool(
 		"calendar_get_events",
-		"List calendar events in a time range. Requires an active session (call calendar_connect first).",
+		"List calendar events in a time range.",
 		mcp.InputSchema{
 			Type: "object",
 			Properties: map[string]mcp.Property{
 				"start":    {Type: "string", Description: "Range start, ISO 8601, e.g. 2026-04-01T00:00:00Z"},
 				"end":      {Type: "string", Description: "Range end, ISO 8601, e.g. 2026-04-30T23:59:59Z"},
 				"calendar": {Type: "string", Description: "Calendar path (optional, defaults to primary discovered calendar)"},
+				"account":  {Type: "string", Description: "Account name (optional, defaults to primary account)"},
 			},
 			Required: []string{"start", "end"},
 		},
 		func(ctx context.Context, args map[string]any) (any, error) {
 			if err := mcp.ValidateArgs(mcp.ArgSchema{
 				Required: []string{"start", "end"},
-				Optional: []string{"calendar"},
+				Optional: []string{"calendar", "account"},
 			}, args); err != nil {
 				return nil, err
 			}
 
-			session := dav.Get()
-			if session == nil {
-				return nil, fmt.Errorf("not connected: call calendar_connect first")
+			sess, err := session(ctx, cfg, strArg(args, "account"))
+			if err != nil {
+				return nil, err
 			}
 
 			startStr, _ := args["start"].(string)
@@ -112,14 +137,14 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 
 			calPath, _ := args["calendar"].(string)
 			if calPath == "" {
-				if len(session.Calendars) == 0 {
+				if len(sess.Calendars) == 0 {
 					return nil, fmt.Errorf("no calendars found in session")
 				}
-				calPath = session.Calendars[0].Href
+				calPath = sess.Calendars[0].Href
 			}
 
 			const icalFmt = "20060102T150405Z"
-			blobs, err := dav.QueryEvents(ctx, session.Client, calPath,
+			blobs, err := dav.QueryEvents(ctx, sess.Client, calPath,
 				startT.UTC().Format(icalFmt),
 				endT.UTC().Format(icalFmt),
 			)
@@ -154,20 +179,21 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 				"description": {Type: "string", Description: "Event description (optional)"},
 				"location":    {Type: "string", Description: "Location (optional)"},
 				"calendar":    {Type: "string", Description: "Calendar path (optional, defaults to primary)"},
+				"account":     {Type: "string", Description: "Account name (optional, defaults to primary account)"},
 			},
 			Required: []string{"summary", "start", "end"},
 		},
 		func(ctx context.Context, args map[string]any) (any, error) {
 			if err := mcp.ValidateArgs(mcp.ArgSchema{
 				Required: []string{"summary", "start", "end"},
-				Optional: []string{"description", "location", "calendar"},
+				Optional: []string{"description", "location", "calendar", "account"},
 			}, args); err != nil {
 				return nil, err
 			}
 
-			session := dav.Get()
-			if session == nil {
-				return nil, fmt.Errorf("not connected: call calendar_connect first")
+			sess, err := session(ctx, cfg, strArg(args, "account"))
+			if err != nil {
+				return nil, err
 			}
 
 			summary, _ := args["summary"].(string)
@@ -187,10 +213,10 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 
 			calPath, _ := args["calendar"].(string)
 			if calPath == "" {
-				if len(session.Calendars) == 0 {
+				if len(sess.Calendars) == 0 {
 					return nil, fmt.Errorf("no calendars found in session")
 				}
-				calPath = session.Calendars[0].Href
+				calPath = sess.Calendars[0].Href
 			}
 
 			event := ical.Event{
@@ -201,14 +227,13 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 				Location:    loc,
 			}
 			icsData := ical.BuildEvent(event)
-			// re-parse to get the generated UID
 			parsed := ical.ParseEvents(icsData)
 			uid := ""
 			if len(parsed) > 0 {
 				uid = parsed[0].UID
 			}
 
-			if err := dav.PutEvent(ctx, session.Client, calPath, uid, icsData, ""); err != nil {
+			if err := dav.PutEvent(ctx, sess.Client, calPath, uid, icsData, ""); err != nil {
 				return nil, fmt.Errorf("create event: %w", err)
 			}
 
@@ -234,13 +259,14 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 				"rrule":       {Type: "string", Description: "RFC 5545 RRULE, e.g. FREQ=WEEKLY;BYDAY=MO,WE,FR"},
 				"description": {Type: "string", Description: "Event description (optional)"},
 				"calendar":    {Type: "string", Description: "Calendar path (optional)"},
+				"account":     {Type: "string", Description: "Account name (optional)"},
 			},
 			Required: []string{"summary", "start", "end", "rrule"},
 		},
 		func(ctx context.Context, args map[string]any) (any, error) {
 			if err := mcp.ValidateArgs(mcp.ArgSchema{
 				Required: []string{"summary", "start", "end", "rrule"},
-				Optional: []string{"description", "calendar"},
+				Optional: []string{"description", "calendar", "account"},
 			}, args); err != nil {
 				return nil, err
 			}
@@ -261,13 +287,14 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 				"end":         {Type: "string", Description: "New end, ISO 8601 (optional)"},
 				"description": {Type: "string", Description: "New description (optional)"},
 				"location":    {Type: "string", Description: "New location (optional)"},
+				"account":     {Type: "string", Description: "Account name (optional)"},
 			},
 			Required: []string{"uid"},
 		},
 		func(ctx context.Context, args map[string]any) (any, error) {
 			if err := mcp.ValidateArgs(mcp.ArgSchema{
 				Required: []string{"uid"},
-				Optional: []string{"summary", "start", "end", "description", "location"},
+				Optional: []string{"summary", "start", "end", "description", "location", "account"},
 			}, args); err != nil {
 				return nil, err
 			}
@@ -282,13 +309,15 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 		mcp.InputSchema{
 			Type: "object",
 			Properties: map[string]mcp.Property{
-				"uid": {Type: "string", Description: "Event UID"},
+				"uid":     {Type: "string", Description: "Event UID"},
+				"account": {Type: "string", Description: "Account name (optional)"},
 			},
 			Required: []string{"uid"},
 		},
 		func(ctx context.Context, args map[string]any) (any, error) {
 			if err := mcp.ValidateArgs(mcp.ArgSchema{
 				Required: []string{"uid"},
+				Optional: []string{"account"},
 			}, args); err != nil {
 				return nil, err
 			}
@@ -298,8 +327,9 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 }
 
 // formatCalendars renders the session state as human-readable text for the LLM.
-func formatCalendars(s *dav.Session) string {
+func formatCalendars(accountName string, s *dav.Session) string {
 	var b strings.Builder
+	fmt.Fprintf(&b, "Account: %s\n", accountName)
 	fmt.Fprintf(&b, "Connected to %s\n", s.Client.BaseURL)
 	fmt.Fprintf(&b, "Calendar home: %s\n", s.CalendarHome)
 	if s.AddressbookHome != "" {
@@ -315,7 +345,11 @@ func formatCalendars(s *dav.Session) string {
 		if name == "" {
 			name = "(no name)"
 		}
-		fmt.Fprintf(&b, "  - %s  [%s]\n", name, c.Href)
+		comps := ""
+		if len(c.Components) > 0 {
+			comps = fmt.Sprintf(" [%s]", strings.Join(c.Components, ","))
+		}
+		fmt.Fprintf(&b, "  - %s  %s%s\n", name, c.Href, comps)
 	}
 	return b.String()
 }
@@ -324,24 +358,30 @@ func formatCalendars(s *dav.Session) string {
 func formatEvents(events []ical.ParsedEvent, start, end time.Time) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Events from %s to %s (%d found):\n",
-		start.Format("2006-01-02"),
-		end.Format("2006-01-02"),
-		len(events),
-	)
+		start.Format(time.RFC3339), end.Format(time.RFC3339), len(events))
 	for _, e := range events {
 		fmt.Fprintf(&b, "\n[%s]\n", e.UID)
-		fmt.Fprintf(&b, "  Summary:  %s\n", e.Summary)
-		fmt.Fprintf(&b, "  Start:    %s\n", e.Start.Format(time.RFC3339))
-		fmt.Fprintf(&b, "  End:      %s\n", e.End.Format(time.RFC3339))
+		fmt.Fprintf(&b, "  Summary: %s\n", e.Summary)
+		fmt.Fprintf(&b, "  Start:   %s\n", e.Start.Format(time.RFC3339))
+		fmt.Fprintf(&b, "  End:     %s\n", e.End.Format(time.RFC3339))
 		if e.Location != "" {
 			fmt.Fprintf(&b, "  Location: %s\n", e.Location)
 		}
 		if e.Description != "" {
-			fmt.Fprintf(&b, "  Desc:     %s\n", e.Description)
-		}
-		if e.RRule != "" {
-			fmt.Fprintf(&b, "  RRule:    %s\n", e.RRule)
+			fmt.Fprintf(&b, "  Description: %s\n", e.Description)
 		}
 	}
+	if len(events) == 0 {
+		b.WriteString("No events found in range.\n")
+	}
 	return b.String()
+}
+
+func stub(name string) mcp.ToolResult {
+	return mcp.ToolResult{
+		Content: []mcp.ContentItem{{
+			Type: "text",
+			Text: fmt.Sprintf("%s: not yet implemented", name),
+		}},
+	}
 }

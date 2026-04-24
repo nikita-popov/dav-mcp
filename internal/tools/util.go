@@ -9,22 +9,33 @@ import (
 	"github.com/nikita-popov/dav-mcp/internal/mcp"
 )
 
-// session returns the active DAV session, auto-connecting from env if needed.
-func session(ctx context.Context, cfg config.Config) (*dav.Session, error) {
-	if s := dav.Get(); s != nil {
-		mcp.Debugf("tools: reusing existing session")
+// session returns the DAV session for the given account name.
+// If the session is not yet connected, it auto-connects using cfg.
+// An empty accountName selects the primary/default account.
+func session(ctx context.Context, cfg config.Config, accountName string) (*dav.Session, error) {
+	if s := dav.Get(accountName); s != nil {
+		mcp.Debugf("tools: reusing session account=%q", accountName)
 		return s, nil
 	}
-	if cfg.DAVURL == "" {
-		return nil, fmt.Errorf("not connected: call calendar_connect first, or set DAV_URL / DAV_USERNAME / DAV_PASSWORD")
+
+	acc, err := cfg.Account(accountName)
+	if err != nil {
+		return nil, err
 	}
-	mcp.Logger.Printf("tools: no session in memory — auto-connecting from env (DAV_URL=%s)", cfg.DAVURL)
-	return dav.Connect(ctx, cfg.DAVURL, cfg.Username, cfg.Password)
+	if acc.URL == "" {
+		return nil, fmt.Errorf(
+			"not connected: no credentials for account %q. "+
+				"Call calendar_connect, or set DAV_URL / DAV_ACCOUNTS",
+			accountName,
+		)
+	}
+
+	mcp.Logger.Printf("tools: auto-connecting account=%q url=%s", acc.Name, acc.URL)
+	return dav.Connect(ctx, acc.Name, acc.URL, acc.Username, acc.Password)
 }
 
 // requireComponent checks that the server supports a given iCalendar component
-// type. Returns a ToolResult with an explanatory message if not supported, so
-// the handler can return early without attempting the operation.
+// type. Returns a ToolResult with an explanatory message if not supported.
 //
 // Usage:
 //
@@ -43,7 +54,7 @@ func requireComponent(sess *dav.Session, comp string) (mcp.ToolResult, bool) {
 	}, false
 }
 
-// requireCardDAV checks that the server supports CardDAV (has addressbook-home).
+// requireCardDAV checks that the server supports CardDAV.
 func requireCardDAV(sess *dav.Session) (mcp.ToolResult, bool) {
 	if sess.Caps.CardDAV {
 		return mcp.ToolResult{}, true
