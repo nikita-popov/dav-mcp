@@ -9,21 +9,8 @@ import (
 	"github.com/nikita-popov/dav-mcp/internal/mcp"
 )
 
-// stub returns a ToolResult placeholder for unimplemented tools.
-func stub(name string) (mcp.ToolResult, error) {
-	return mcp.ToolResult{
-		Content: []mcp.ContentItem{{
-			Type: "text",
-			Text: fmt.Sprintf("%s: not yet implemented", name),
-		}},
-	}, nil
-}
-
 // session returns the active DAV session.
 // If no session exists but env credentials are configured, it auto-connects.
-// This handles MCP clients that run a separate discovery process (tools/list)
-// and a separate process for actual tool calls — the in-memory session is
-// lost between processes, so we reconnect transparently.
 func session(ctx context.Context, cfg config.Config) (*dav.Session, error) {
 	if s := dav.Get(); s != nil {
 		mcp.Debugf("tools: reusing existing session")
