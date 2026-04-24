@@ -14,6 +14,46 @@ import (
 
 func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 
+	// calendar_list_calendars
+	s.AddTool(
+		"calendar_list_calendars",
+		"List all calendars across connected accounts. Call this first to discover available calendars and their paths before using calendar_get_events or calendar_create_event.",
+		mcp.InputSchema{
+			Type: "object",
+			Properties: map[string]mcp.Property{
+				"account": {Type: "string", Description: "Account name (optional, lists all accounts if omitted)"},
+			},
+		},
+		func(ctx context.Context, args map[string]any) (any, error) {
+			accName := strArg(args, "account")
+
+			accounts := cfg.Accounts
+			if accName != "" {
+				acc, err := cfg.Account(accName)
+				if err != nil {
+					return nil, err
+				}
+				accounts = []config.Account{acc}
+			}
+
+			var b strings.Builder
+			for _, acc := range accounts {
+				sess, err := dav.Get(acc.Name)
+				if err != nil {
+					fmt.Fprintf(&b, "Account %q: not connected (use calendar_reconnect)\n", acc.Name)
+					continue
+				}
+				b.WriteString(formatCalendars(acc.Name, sess))
+			}
+			if b.Len() == 0 {
+				return nil, fmt.Errorf("no accounts connected; use calendar_reconnect first")
+			}
+			return mcp.ToolResult{
+				Content: []mcp.ContentItem{{Type: "text", Text: b.String()}},
+			}, nil
+		},
+	)
+
 	// calendar_connect
 	s.AddTool(
 		"calendar_connect",
@@ -105,8 +145,8 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 			Properties: map[string]mcp.Property{
 				"start":    {Type: "string", Description: "Range start, ISO 8601, e.g. 2026-04-01T00:00:00Z"},
 				"end":      {Type: "string", Description: "Range end, ISO 8601, e.g. 2026-04-30T23:59:59Z"},
-				"calendar": {Type: "string", Description: "Calendar path (optional, defaults to primary discovered calendar)"},
-				"account":  {Type: "string", Description: "Account name (optional, defaults to primary account)"},
+				"calendar": {Type: "string", Description: "Calendar path from calendar_list_calendars (optional, defaults to primary calendar of the account)"},
+				"account":  {Type: "string", Description: "Account name (optional, defaults to \"default\" account or first configured)"},
 			},
 			Required: []string{"start", "end"},
 		},
@@ -178,8 +218,8 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 				"end":         {Type: "string", Description: "End datetime, ISO 8601"},
 				"description": {Type: "string", Description: "Event description (optional)"},
 				"location":    {Type: "string", Description: "Location (optional)"},
-				"calendar":    {Type: "string", Description: "Calendar path (optional, defaults to primary)"},
-				"account":     {Type: "string", Description: "Account name (optional, defaults to primary account)"},
+				"calendar":    {Type: "string", Description: "Calendar path from calendar_list_calendars (optional, defaults to primary calendar of the account)"},
+				"account":     {Type: "string", Description: "Account name (optional, defaults to \"default\" account or first configured)"},
 			},
 			Required: []string{"summary", "start", "end"},
 		},
@@ -258,7 +298,7 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 				"end":         {Type: "string", Description: "First occurrence end, ISO 8601"},
 				"rrule":       {Type: "string", Description: "RFC 5545 RRULE, e.g. FREQ=WEEKLY;BYDAY=MO,WE,FR"},
 				"description": {Type: "string", Description: "Event description (optional)"},
-				"calendar":    {Type: "string", Description: "Calendar path (optional)"},
+				"calendar":    {Type: "string", Description: "Calendar path from calendar_list_calendars (optional)"},
 				"account":     {Type: "string", Description: "Account name (optional)"},
 			},
 			Required: []string{"summary", "start", "end", "rrule"},

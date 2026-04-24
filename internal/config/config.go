@@ -30,8 +30,14 @@ type Config struct {
 	Password string
 }
 
-// Primary returns the first (default) account.
+// Primary returns the default account.
+// Prefers an account named "default"; falls back to the first in the list.
 func (c Config) Primary() Account {
+	for _, a := range c.Accounts {
+		if a.Name == "default" {
+			return a
+		}
+	}
 	if len(c.Accounts) == 0 {
 		return Account{}
 	}
