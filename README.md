@@ -113,28 +113,27 @@ configured account. When omitted, the first (primary) account is used.
 
 ### Calendar (CalDAV)
 
-| Tool | Status | Description |
-|------|--------|-------------|
-| `calendar_connect` | ✅ | Connect to a CalDAV server and discover calendars |
-| `calendar_reconnect` | ✅ | Reconnect one or all accounts from environment config |
-| `calendar_get_events` | ✅ | List events in a time range |
-| `calendar_create_event` | ✅ | Create a new event |
-| `calendar_create_recurring_event` | 🚧 | Create a recurring event with RRULE |
-| `calendar_update_event` | 🚧 | Update an existing event |
-| `calendar_delete_event` | 🚧 | Delete an event by UID |
+| Tool | Description |
+|------|-------------|
+| `calendar_connect` | Connect to a CalDAV server and discover calendars |
+| `calendar_reconnect` | Reconnect one or all accounts from environment config |
+| `calendar_list_calendars` | List all discovered calendar collections |
+| `calendar_get_events` | List events in a time range |
+| `calendar_create_event` | Create a new event |
+| `calendar_create_recurring_event` | Create a recurring event (accepts RFC 5545 `rrule`, e.g. `FREQ=WEEKLY;BYDAY=MO,WE`) |
+| `calendar_update_event` | Update an existing event by UID |
+| `calendar_delete_event` | Delete an event by UID |
 
 ### Contacts (CardDAV)
 
-| Tool | Status | Description |
-|------|--------|-------------|
-| `contacts_list` | ✅ | List all contacts in an address book |
-| `contacts_get` | ✅ | Get a single contact by UID |
-| `contacts_search` | ✅ | Search contacts by name, email, phone, or org |
-| `contacts_create` | ✅ | Create a new contact (vCard 4.0) |
-| `contacts_update` | 🚧 | Update an existing contact |
-| `contacts_delete` | 🚧 | Delete a contact by UID |
-
-✅ implemented · 🚧 stub (not yet implemented)
+| Tool | Description |
+|------|-------------|
+| `contacts_list` | List all contacts in an address book |
+| `contacts_get` | Get a single contact by UID |
+| `contacts_search` | Search contacts by name, email, phone, or org |
+| `contacts_create` | Create a new contact (vCard 4.0) |
+| `contacts_update` | Update an existing contact (only supplied fields are changed) |
+| `contacts_delete` | Delete a contact by UID |
 
 ## Server Capabilities
 
