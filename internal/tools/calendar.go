@@ -14,10 +14,10 @@ import (
 
 func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 
-	// calendar_list_calendars
+	// calendar_calendar_list
 	s.AddTool(
-		"calendar_list_calendars",
-		"List all calendars across connected accounts. Call this first to discover available calendars and their paths before using calendar_get_events or calendar_create_event.",
+		"calendar_calendar_list",
+		"List all calendars across connected accounts. Call this first to discover available calendars and their paths before using calendar_event_list or calendar_event_create.",
 		mcp.InputSchema{
 			Type: "object",
 			Properties: map[string]mcp.Property{
@@ -40,13 +40,13 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 			for _, acc := range accounts {
 				sess := dav.Get(acc.Name)
 				if sess == nil {
-					fmt.Fprintf(&b, "Account %q: not connected (use calendar_reconnect)\n", acc.Name)
+					fmt.Fprintf(&b, "Account %q: not connected (use dav_reconnect)\n", acc.Name)
 					continue
 				}
 				b.WriteString(formatCalendars(acc.Name, sess))
 			}
 			if b.Len() == 0 {
-				return nil, fmt.Errorf("no accounts connected; use calendar_reconnect first")
+				return nil, fmt.Errorf("no accounts connected; use dav_reconnect first")
 			}
 			return mcp.ToolResult{
 				Content: []mcp.ContentItem{{Type: "text", Text: b.String()}},
@@ -54,14 +54,14 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 		},
 	)
 
-	// calendar_connect
+	// dav_connect
 	s.AddTool(
-		"calendar_connect",
-		"Connect to a CalDAV server and discover calendars. Returns a list of available calendars.",
+		"dav_connect",
+		"Connect to a CalDAV/CardDAV server and discover calendars and address books. Returns a list of available calendars.",
 		mcp.InputSchema{
 			Type: "object",
 			Properties: map[string]mcp.Property{
-				"url":      {Type: "string", Description: "CalDAV server URL"},
+				"url":      {Type: "string", Description: "DAV server URL"},
 				"username": {Type: "string", Description: "Username"},
 				"password": {Type: "string", Description: "Password"},
 				"account":  {Type: "string", Description: "Account name to store this connection under (optional, defaults to \"default\")"},
@@ -96,9 +96,9 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 		},
 	)
 
-	// calendar_reconnect
+	// dav_reconnect
 	s.AddTool(
-		"calendar_reconnect",
+		"dav_reconnect",
 		"Reconnect one or all accounts using credentials from environment variables (DAV_URL / DAV_ACCOUNTS).",
 		mcp.InputSchema{
 			Type: "object",
@@ -136,16 +136,16 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 		},
 	)
 
-	// calendar_get_events
+	// calendar_event_list
 	s.AddTool(
-		"calendar_get_events",
+		"calendar_event_list",
 		"List calendar events in a time range.",
 		mcp.InputSchema{
 			Type: "object",
 			Properties: map[string]mcp.Property{
 				"start":    {Type: "string", Description: "Range start, ISO 8601, e.g. 2026-04-01T00:00:00Z"},
 				"end":      {Type: "string", Description: "Range end, ISO 8601, e.g. 2026-04-30T23:59:59Z"},
-				"calendar": {Type: "string", Description: "Calendar path from calendar_list_calendars (optional, defaults to primary calendar of the account)"},
+				"calendar": {Type: "string", Description: "Calendar path from calendar_calendar_list (optional, defaults to primary calendar of the account)"},
 				"account":  {Type: "string", Description: "Account name (optional, defaults to \"default\" account or first configured)"},
 			},
 			Required: []string{"start", "end"},
@@ -206,9 +206,9 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 		},
 	)
 
-	// calendar_create_event
+	// calendar_event_create
 	s.AddTool(
-		"calendar_create_event",
+		"calendar_event_create",
 		"Create a new calendar event. Returns the UID of the created event.",
 		mcp.InputSchema{
 			Type: "object",
@@ -218,7 +218,7 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 				"end":         {Type: "string", Description: "End datetime, ISO 8601"},
 				"description": {Type: "string", Description: "Event description (optional)"},
 				"location":    {Type: "string", Description: "Location (optional)"},
-				"calendar":    {Type: "string", Description: "Calendar path from calendar_list_calendars (optional, defaults to primary calendar of the account)"},
+				"calendar":    {Type: "string", Description: "Calendar path from calendar_calendar_list (optional, defaults to primary calendar of the account)"},
 				"account":     {Type: "string", Description: "Account name (optional, defaults to \"default\" account or first configured)"},
 			},
 			Required: []string{"summary", "start", "end"},
@@ -286,9 +286,9 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 		},
 	)
 
-	// calendar_create_recurring_event
+	// calendar_event_create_recurring
 	s.AddTool(
-		"calendar_create_recurring_event",
+		"calendar_event_create_recurring",
 		"Create a recurring calendar event with RRULE",
 		mcp.InputSchema{
 			Type: "object",
@@ -298,7 +298,7 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 				"end":         {Type: "string", Description: "First occurrence end, ISO 8601"},
 				"rrule":       {Type: "string", Description: "RFC 5545 RRULE, e.g. FREQ=WEEKLY;BYDAY=MO,WE,FR"},
 				"description": {Type: "string", Description: "Event description (optional)"},
-				"calendar":    {Type: "string", Description: "Calendar path from calendar_list_calendars (optional)"},
+				"calendar":    {Type: "string", Description: "Calendar path from calendar_calendar_list (optional)"},
 				"account":     {Type: "string", Description: "Account name (optional)"},
 			},
 			Required: []string{"summary", "start", "end", "rrule"},
@@ -316,16 +316,22 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 				return nil, err
 			}
 
-			startT, err := time.Parse(time.RFC3339, strArg(args, "start"))
+			summary, _ := args["summary"].(string)
+			startStr, _ := args["start"].(string)
+			endStr, _ := args["end"].(string)
+			rrule, _ := args["rrule"].(string)
+			desc, _ := args["description"].(string)
+
+			startT, err := time.Parse(time.RFC3339, startStr)
 			if err != nil {
 				return nil, fmt.Errorf("invalid start: %w", err)
 			}
-			endT, err := time.Parse(time.RFC3339, strArg(args, "end"))
+			endT, err := time.Parse(time.RFC3339, endStr)
 			if err != nil {
 				return nil, fmt.Errorf("invalid end: %w", err)
 			}
 
-			calPath := strArg(args, "calendar")
+			calPath, _ := args["calendar"].(string)
 			if calPath == "" {
 				if len(sess.Calendars) == 0 {
 					return nil, fmt.Errorf("no calendars found in session")
@@ -334,11 +340,11 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 			}
 
 			event := ical.Event{
-				Summary:     strArg(args, "summary"),
+				Summary:     summary,
 				Start:       startT.UTC(),
 				End:         endT.UTC(),
-				Description: strArg(args, "description"),
-				RRule:       strArg(args, "rrule"),
+				Description: desc,
+				RRule:       rrule,
 			}
 			icsData := ical.BuildEvent(event)
 			parsed := ical.ParseEvents(icsData)
@@ -354,17 +360,16 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 			return mcp.ToolResult{
 				Content: []mcp.ContentItem{{
 					Type: "text",
-					Text: fmt.Sprintf("Recurring event created.\nUID: %s\nRRULE: %s\nCalendar: %s",
-						uid, strArg(args, "rrule"), calPath),
+					Text: fmt.Sprintf("Recurring event created.\nUID: %s\nRRULE: %s\nCalendar: %s", uid, rrule, calPath),
 				}},
 			}, nil
 		},
 	)
 
-	// calendar_update_event
+	// calendar_event_update
 	s.AddTool(
-		"calendar_update_event",
-		"Update an existing calendar event. Only supplied fields are changed; omitted fields keep their current values.",
+		"calendar_event_update",
+		"Update an existing calendar event by UID. Only the fields you provide are changed.",
 		mcp.InputSchema{
 			Type: "object",
 			Properties: map[string]mcp.Property{
@@ -386,20 +391,21 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 			}, args); err != nil {
 				return nil, err
 			}
+
 			sess, err := session(ctx, cfg, strArg(args, "account"))
 			if err != nil {
 				return nil, err
 			}
-			uid := strArg(args, "uid")
 
-			// Determine which calendar(s) to search.
+			uid := strArg(args, "uid")
 			calPath := strArg(args, "calendar")
+
 			rec, err := findEventByUID(ctx, sess, uid, calPath)
 			if err != nil {
 				return nil, err
 			}
 
-			// Patch non-empty fields.
+			// Patch only supplied fields.
 			ev := rec.Event
 			if v := strArg(args, "summary"); v != "" {
 				ev.Summary = v
@@ -425,34 +431,23 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 				ev.Location = strArg(args, "location")
 			}
 
-			// Bump SEQUENCE so clients know the event was modified.
-			ev.Sequence++
-
-			icsData := ical.BuildEvent(ical.Event{
-				UID:         ev.UID,
-				Summary:     ev.Summary,
-				Description: ev.Description,
-				Location:    ev.Location,
-				Start:       ev.Start,
-				End:         ev.End,
-				RRule:       ev.RRule,
-				Sequence:    ev.Sequence,
-			})
-			if err := dav.PutEventHref(ctx, sess.Client, rec.Href, icsData, rec.ETag); err != nil {
-				return nil, fmt.Errorf("calendar_update_event: put: %w", err)
+			icsData := ical.BuildEvent(ev)
+			if err := dav.PutEvent(ctx, sess.Client, rec.CalendarPath, uid, icsData, rec.ETag); err != nil {
+				return nil, fmt.Errorf("calendar_event_update: put: %w", err)
 			}
+
 			return mcp.ToolResult{
 				Content: []mcp.ContentItem{{
 					Type: "text",
-					Text: fmt.Sprintf("Updated event %q (UID: %s)", ev.Summary, uid),
+					Text: fmt.Sprintf("Event updated.\nUID: %s", uid),
 				}},
 			}, nil
 		},
 	)
 
-	// calendar_delete_event
+	// calendar_event_delete
 	s.AddTool(
-		"calendar_delete_event",
+		"calendar_event_delete",
 		"Delete a calendar event by UID.",
 		mcp.InputSchema{
 			Type: "object",
@@ -470,97 +465,89 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 			}, args); err != nil {
 				return nil, err
 			}
+
 			sess, err := session(ctx, cfg, strArg(args, "account"))
 			if err != nil {
 				return nil, err
 			}
+
 			uid := strArg(args, "uid")
 			calPath := strArg(args, "calendar")
 
 			rec, err := findEventByUID(ctx, sess, uid, calPath)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("calendar_event_delete: %w", err)
 			}
+
 			if err := sess.Client.Delete(ctx, rec.Href, rec.ETag); err != nil {
-				return nil, fmt.Errorf("calendar_delete_event: %w", err)
+				return nil, fmt.Errorf("calendar_event_delete: %w", err)
 			}
+
 			return mcp.ToolResult{
 				Content: []mcp.ContentItem{{
 					Type: "text",
-					Text: fmt.Sprintf("Deleted event %q (UID: %s)", rec.Event.Summary, uid),
+					Text: fmt.Sprintf("Deleted event UID=%s from %s", uid, rec.CalendarPath),
 				}},
 			}, nil
 		},
 	)
 }
 
-// findEventByUID searches for an event by UID in the given calendar path,
-// or across all calendars in the session if calPath is empty.
-func findEventByUID(ctx context.Context, sess *dav.Session, uid, calPath string) (*dav.EventRecord, error) {
-	if calPath != "" {
-		return dav.QueryEventByUID(ctx, sess.Client, calPath, uid)
+// ---- helpers ----------------------------------------------------------------
+
+func formatCalendars(accName string, sess *dav.Session) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Account: %s\n", accName)
+	fmt.Fprintf(&b, "Calendar home: %s\n", sess.CalendarHome)
+	if sess.AddressbookHome != "" {
+		fmt.Fprintf(&b, "Addressbook home: %s\n", sess.AddressbookHome)
 	}
-	var lastErr error
 	for _, cal := range sess.Calendars {
-		rec, err := dav.QueryEventByUID(ctx, sess.Client, cal.Href, uid)
-		if err == nil {
-			return rec, nil
-		}
-		lastErr = err
-	}
-	if lastErr != nil {
-		return nil, fmt.Errorf("event UID %q not found in any calendar: %w", uid, lastErr)
-	}
-	return nil, fmt.Errorf("event UID %q not found (no calendars in session)", uid)
-}
-
-// formatCalendars renders the session state as human-readable text for the LLM.
-func formatCalendars(accountName string, s *dav.Session) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "Account: %s\n", accountName)
-	fmt.Fprintf(&b, "Connected to %s\n", s.Client.BaseURL)
-	fmt.Fprintf(&b, "Calendar home: %s\n", s.CalendarHome)
-	if s.AddressbookHome != "" {
-		fmt.Fprintf(&b, "Addressbook home: %s\n", s.AddressbookHome)
-	}
-	if len(s.Calendars) == 0 {
-		fmt.Fprintf(&b, "No calendars found.\n")
-		return b.String()
-	}
-	fmt.Fprintf(&b, "Calendars (%d):\n", len(s.Calendars))
-	for _, c := range s.Calendars {
-		name := c.DisplayName
-		if name == "" {
-			name = "(no name)"
-		}
-		comps := ""
-		if len(c.Components) > 0 {
-			comps = fmt.Sprintf(" [%s]", strings.Join(c.Components, ","))
-		}
-		fmt.Fprintf(&b, "  - %s  %s%s\n", name, c.Href, comps)
+		fmt.Fprintf(&b, "  - %s (%s)\n", cal.DisplayName, cal.Href)
 	}
 	return b.String()
 }
 
-// formatEvents renders a list of parsed events as human-readable text.
 func formatEvents(events []ical.ParsedEvent, start, end time.Time) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "Events from %s to %s (%d found):\n",
-		start.Format(time.RFC3339), end.Format(time.RFC3339), len(events))
-	for _, e := range events {
-		fmt.Fprintf(&b, "\n[%s]\n", e.UID)
-		fmt.Fprintf(&b, "  Summary: %s\n", e.Summary)
-		fmt.Fprintf(&b, "  Start:   %s\n", e.Start.Format(time.RFC3339))
-		fmt.Fprintf(&b, "  End:     %s\n", e.End.Format(time.RFC3339))
-		if e.Location != "" {
-			fmt.Fprintf(&b, "  Location: %s\n", e.Location)
-		}
-		if e.Description != "" {
-			fmt.Fprintf(&b, "  Description: %s\n", e.Description)
-		}
-	}
 	if len(events) == 0 {
-		b.WriteString("No events found in range.\n")
+		return fmt.Sprintf("No events found between %s and %s.", start.Format(time.RFC3339), end.Format(time.RFC3339))
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "%d event(s) between %s and %s:\n\n",
+		len(events), start.Format(time.RFC3339), end.Format(time.RFC3339))
+	for _, ev := range events {
+		fmt.Fprintf(&b, "UID: %s\n", ev.UID)
+		fmt.Fprintf(&b, "Summary: %s\n", ev.Summary)
+		fmt.Fprintf(&b, "Start: %s\n", ev.Start.Format(time.RFC3339))
+		fmt.Fprintf(&b, "End: %s\n", ev.End.Format(time.RFC3339))
+		if ev.Description != "" {
+			fmt.Fprintf(&b, "Description: %s\n", ev.Description)
+		}
+		if ev.Location != "" {
+			fmt.Fprintf(&b, "Location: %s\n", ev.Location)
+		}
+		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+// findEventByUID locates an event by UID across calendars in the session.
+// If calPath is non-empty, only that calendar is searched.
+func findEventByUID(ctx context.Context, sess *dav.Session, uid, calPath string) (*dav.EventRecord, error) {
+	calendars := sess.Calendars
+	if calPath != "" {
+		calendars = []dav.Collection{{Href: calPath}}
+	}
+	for _, cal := range calendars {
+		records, err := dav.QueryEventsFull(ctx, sess.Client, cal.Href)
+		if err != nil {
+			continue
+		}
+		for i := range records {
+			if records[i].Event.UID == uid {
+				return &records[i], nil
+			}
+		}
+	}
+	return nil, fmt.Errorf("event UID=%q not found", uid)
 }
