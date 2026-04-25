@@ -2,6 +2,11 @@ REPO := $(shell dirname $(realpath $(lastword $(MAKEFILE_LIST))))
 
 GO = go
 
+# git describe: v0.1.0 on a tagged commit, v0.1.0-3-gabcdef on later commits.
+# Append -dev so local builds are always distinguishable from CI releases.
+VERSION := $(shell git describe --tags --always --dirty 2>/dev/null | sed 's/$/-dev/')
+LDFLAGS := -s -w -X main.version=$(VERSION)
+
 .PHONY: all build dav-mcp clean
 
 all: deps build
@@ -16,7 +21,7 @@ get:
 	$(GO) get -v ./...
 
 dav-mcp:
-	$(GO) build -o bin/dav-mcp -v ./cmd/dav-mcp
+	$(GO) build -trimpath -ldflags "$(LDFLAGS)" -o bin/dav-mcp ./cmd/dav-mcp
 
 fmt:
 	$(GO) fmt ./...
