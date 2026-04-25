@@ -25,18 +25,6 @@ func TestCollectionSupports(t *testing.T) {
 	}
 }
 
-func TestDiscoverPrincipal_NotFound(t *testing.T) {
-	ms := &Multistatus{}
-	// simulate no principal href in response
-	_ = ms
-	// DiscoverPrincipal returns ErrNotFound when multistatus has no href;
-	// the httptest path is already covered by TestDiscoverPrincipal.
-	// Here we just guard the sentinel value itself.
-	if ErrNotFound == nil {
-		t.Fatal("ErrNotFound must not be nil")
-	}
-}
-
 func TestNormalizeHref(t *testing.T) {
 	cases := []struct {
 		in, want string
