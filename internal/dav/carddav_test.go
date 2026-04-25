@@ -116,17 +116,18 @@ func TestPutContact_SendsPUT(t *testing.T) {
 }
 
 func TestDeleteContact_SendsDELETE(t *testing.T) {
-	var gotMethod, gotPath string
+	var gotMethod, gotPath, gotIfMatch string
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotMethod = r.Method
 		gotPath = r.URL.Path
+		gotIfMatch = r.Header.Get("If-Match")
 		w.WriteHeader(204)
 	}))
 	defer srv.Close()
 
 	c, _ := New(srv.URL, "u", "p")
-	err := DeleteContact(context.Background(), c, "/ab/", "uid123")
+	err := DeleteContact(context.Background(), c, "/ab/", "uid123", `"etag-uid123"`)
 	if err != nil {
 		t.Fatalf("DeleteContact: %v", err)
 	}
@@ -135,6 +136,9 @@ func TestDeleteContact_SendsDELETE(t *testing.T) {
 	}
 	if gotPath != "/ab/uid123.vcf" {
 		t.Errorf("path=%q", gotPath)
+	}
+	if gotIfMatch != `"etag-uid123"` {
+		t.Errorf("If-Match=%q, want \"etag-uid123\"", gotIfMatch)
 	}
 }
 
