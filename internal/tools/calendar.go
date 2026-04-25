@@ -146,7 +146,7 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 				"start":    {Type: "string", Description: "Range start, ISO 8601, e.g. 2026-04-01T00:00:00Z"},
 				"end":      {Type: "string", Description: "Range end, ISO 8601, e.g. 2026-04-30T23:59:59Z"},
 				"calendar": {Type: "string", Description: "Calendar path from calendar_calendar_list (optional, defaults to primary calendar of the account)"},
-				"account":  {Type: "string", Description: "Account name (optional, defaults to \"default\" account or first configured)"},
+				"account":  {Type: "string", Description: "Account name (optional)"},
 			},
 			Required: []string{"start", "end"},
 		},
@@ -218,8 +218,8 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 				"end":         {Type: "string", Description: "End datetime, ISO 8601"},
 				"description": {Type: "string", Description: "Event description (optional)"},
 				"location":    {Type: "string", Description: "Location (optional)"},
-				"calendar":    {Type: "string", Description: "Calendar path from calendar_calendar_list (optional, defaults to primary calendar of the account)"},
-				"account":     {Type: "string", Description: "Account name (optional, defaults to \"default\" account or first configured)"},
+				"calendar":    {Type: "string", Description: "Calendar path from calendar_calendar_list (optional)"},
+				"account":     {Type: "string", Description: "Account name (optional)"},
 			},
 			Required: []string{"summary", "start", "end"},
 		},
@@ -400,13 +400,14 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 			uid := strArg(args, "uid")
 			calPath := strArg(args, "calendar")
 
-			rec, err := findEventByUID(ctx, sess, uid, calPath)
+			ref, err := findEventByUID(ctx, sess, uid, calPath)
 			if err != nil {
 				return nil, err
 			}
 
-			// Patch only supplied fields.
-			ev := rec.Event
+			// Convert ParsedEvent to Event, then patch only supplied fields.
+			ev := parsedToEvent(ref.rec.Event)
+			ev.Sequence++
 			if v := strArg(args, "summary"); v != "" {
 				ev.Summary = v
 			}
@@ -432,8 +433,8 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 			}
 
 			icsData := ical.BuildEvent(ev)
-			if err := dav.PutEvent(ctx, sess.Client, rec.CalendarPath, uid, icsData, rec.ETag); err != nil {
-				return nil, fmt.Errorf("calendar_event_update: put: %w", err)
+			if err := dav.PutEventHref(ctx, sess.Client, ref.rec.Href, icsData, ref.rec.ETag); err != nil {
+				return nil, fmt.Errorf("calendar_event_update: %w", err)
 			}
 
 			return mcp.ToolResult{
@@ -474,19 +475,19 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 			uid := strArg(args, "uid")
 			calPath := strArg(args, "calendar")
 
-			rec, err := findEventByUID(ctx, sess, uid, calPath)
+			ref, err := findEventByUID(ctx, sess, uid, calPath)
 			if err != nil {
 				return nil, fmt.Errorf("calendar_event_delete: %w", err)
 			}
 
-			if err := sess.Client.Delete(ctx, rec.Href, rec.ETag); err != nil {
+			if err := sess.Client.Delete(ctx, ref.rec.Href, ref.rec.ETag); err != nil {
 				return nil, fmt.Errorf("calendar_event_delete: %w", err)
 			}
 
 			return mcp.ToolResult{
 				Content: []mcp.ContentItem{{
 					Type: "text",
-					Text: fmt.Sprintf("Deleted event UID=%s from %s", uid, rec.CalendarPath),
+					Text: fmt.Sprintf("Deleted event UID=%s from %s", uid, ref.calendarHref),
 				}},
 			}, nil
 		},
@@ -494,6 +495,44 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 }
 
 // ---- helpers ----------------------------------------------------------------
+
+// eventRef pairs an EventRecord with the calendar collection href it came from.
+type eventRef struct {
+	rec          *dav.EventRecord
+	calendarHref string
+}
+
+// findEventByUID searches calendars in the session for an event with the given UID.
+// If calendarHref is non-empty, only that collection is searched.
+func findEventByUID(ctx context.Context, sess *dav.Session, uid, calendarHref string) (*eventRef, error) {
+	calendars := sess.Calendars
+	if calendarHref != "" {
+		calendars = []dav.Collection{{Href: calendarHref}}
+	}
+	for _, cal := range calendars {
+		rec, err := dav.QueryEventByUID(ctx, sess.Client, cal.Href, uid)
+		if err != nil {
+			// not found in this calendar — keep searching
+			continue
+		}
+		return &eventRef{rec: rec, calendarHref: cal.Href}, nil
+	}
+	return nil, fmt.Errorf("event UID=%q not found", uid)
+}
+
+// parsedToEvent converts a ParsedEvent (read from server) to an Event (for building iCal).
+func parsedToEvent(p ical.ParsedEvent) ical.Event {
+	return ical.Event{
+		UID:         p.UID,
+		Summary:     p.Summary,
+		Description: p.Description,
+		Location:    p.Location,
+		Start:       p.Start,
+		End:         p.End,
+		RRule:       p.RRule,
+		Sequence:    p.Sequence,
+	}
+}
 
 func formatCalendars(accName string, sess *dav.Session) string {
 	var b strings.Builder
@@ -529,25 +568,4 @@ func formatEvents(events []ical.ParsedEvent, start, end time.Time) string {
 		b.WriteString("\n")
 	}
 	return b.String()
-}
-
-// findEventByUID locates an event by UID across calendars in the session.
-// If calPath is non-empty, only that calendar is searched.
-func findEventByUID(ctx context.Context, sess *dav.Session, uid, calPath string) (*dav.EventRecord, error) {
-	calendars := sess.Calendars
-	if calPath != "" {
-		calendars = []dav.Collection{{Href: calPath}}
-	}
-	for _, cal := range calendars {
-		records, err := dav.QueryEventsFull(ctx, sess.Client, cal.Href)
-		if err != nil {
-			continue
-		}
-		for i := range records {
-			if records[i].Event.UID == uid {
-				return &records[i], nil
-			}
-		}
-	}
-	return nil, fmt.Errorf("event UID=%q not found", uid)
 }
