@@ -94,16 +94,16 @@ func connectCalDAV(t *testing.T, extraHandler http.HandlerFunc) (config.Config, 
 	return cfg, func() { srv.Close() }
 }
 
-// ---- calendar_calendar_list -------------------------------------------------
+// ---- calendar_list -------------------------------------------------
 
 func TestCalendarCalendarList(t *testing.T) {
 	cfg, cleanup := connectCalDAV(t, nil)
 	defer cleanup()
 
 	s := calendarServer(t, cfg)
-	res, err := s.CallTool(context.Background(), "calendar_calendar_list", map[string]any{})
+	res, err := s.CallTool(context.Background(), "calendar_list", map[string]any{})
 	if err != nil {
-		t.Fatalf("calendar_calendar_list: %v", err)
+		t.Fatalf("calendar_list: %v", err)
 	}
 	text := toolText(t, res)
 	if !strings.Contains(text, "Personal") {
@@ -194,7 +194,7 @@ func TestCalendarEventCreate(t *testing.T) {
 	}
 }
 
-// ---- calendar_event_create_recurring ----------------------------------------
+// ---- calendar_event_recurring_create ----------------------------------------
 
 func TestCalendarEventCreateRecurring(t *testing.T) {
 	var putCalled bool
@@ -210,14 +210,14 @@ func TestCalendarEventCreateRecurring(t *testing.T) {
 	defer cleanup()
 
 	s := calendarServer(t, cfg)
-	res, err := s.CallTool(context.Background(), "calendar_event_create_recurring", map[string]any{
+	res, err := s.CallTool(context.Background(), "calendar_event_recurring_create", map[string]any{
 		"summary": "Weekly standup",
 		"start":   "2026-05-04T09:00:00Z",
 		"end":     "2026-05-04T09:30:00Z",
 		"rrule":   "FREQ=WEEKLY;BYDAY=MO",
 	})
 	if err != nil {
-		t.Fatalf("calendar_event_create_recurring: %v", err)
+		t.Fatalf("calendar_event_recurring_create: %v", err)
 	}
 	if toolIsError(res) {
 		t.Fatalf("tool error: %s", toolText(t, res))
