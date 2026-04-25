@@ -191,14 +191,14 @@ type Propstat struct {
 }
 
 type Prop struct {
-	DisplayName                    string                       `xml:"displayname,omitempty"`
-	ETag                           string                       `xml:"getetag,omitempty"`
-	CalendarData                   string                       `xml:"calendar-data,omitempty"`
-	AddressData                    string                       `xml:"address-data,omitempty"`
-	ResourceType                   ResourceType                 `xml:"resourcetype"`
-	CurrentUserPrincipal           HrefWrap                     `xml:"current-user-principal"`
-	CalendarHomeSet                HrefWrap                     `xml:"calendar-home-set"`
-	AddressbookHomeSet             HrefWrap                     `xml:"addressbook-home-set"`
+	DisplayName                   string                        `xml:"displayname,omitempty"`
+	ETag                          string                        `xml:"getetag,omitempty"`
+	CalendarData                  string                        `xml:"calendar-data,omitempty"`
+	AddressData                   string                        `xml:"address-data,omitempty"`
+	ResourceType                  ResourceType                  `xml:"resourcetype"`
+	CurrentUserPrincipal          HrefWrap                      `xml:"current-user-principal"`
+	CalendarHomeSet               HrefWrap                      `xml:"calendar-home-set"`
+	AddressbookHomeSet            HrefWrap                      `xml:"addressbook-home-set"`
 	SupportedCalendarComponentSet SupportedCalendarComponentSet `xml:"supported-calendar-component-set"`
 }
 
