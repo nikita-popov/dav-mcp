@@ -15,13 +15,7 @@ const contactsFullResp = `<?xml version="1.0"?>
     <propstat>
       <prop>
         <getetag>"etag-c1"</getetag>
-        <c:address-data>BEGIN:VCARD
-VERSION:3.0
-UID:c1@test
-FN:Alice Smith
-EMAIL:alice@example.com
-END:VCARD
-</c:address-data>
+        <c:address-data>BEGIN:VCARD\r\nVERSION:3.0\r\nUID:c1@test\r\nFN:Alice Smith\r\nEMAIL:alice@example.com\r\nEND:VCARD\r\n</c:address-data>
       </prop>
       <status>HTTP/1.1 200 OK</status>
     </propstat>
@@ -47,8 +41,8 @@ func TestQueryContactsFull_ReturnsOne(t *testing.T) {
 	if len(contacts) != 1 {
 		t.Errorf("expected 1, got %d", len(contacts))
 	}
-	if contacts[0].FN != "Alice Smith" {
-		t.Errorf("FN=%q", contacts[0].FN)
+	if contacts[0].Contact.FN != "Alice Smith" {
+		t.Errorf("FN=%q", contacts[0].Contact.FN)
 	}
 }
 
