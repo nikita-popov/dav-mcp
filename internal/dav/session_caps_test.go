@@ -41,9 +41,9 @@ func TestSupports_NilComponents_FailOpen(t *testing.T) {
 
 func TestBuildCaps_MergesAllCollections(t *testing.T) {
 	cols := []Collection{
-		{Path: "/cal/personal/", Components: []string{"VEVENT"}},
-		{Path: "/cal/tasks/", Components: []string{"VTODO"}},
-		{Path: "/cal/journal/", Components: []string{"VJOURNAL", "VEVENT"}},
+		{Href: "/cal/personal/", Components: []string{"VEVENT"}},
+		{Href: "/cal/tasks/", Components: []string{"VTODO"}},
+		{Href: "/cal/journal/", Components: []string{"VJOURNAL", "VEVENT"}},
 	}
 	caps := buildCaps(cols)
 	for _, want := range []string{"VEVENT", "VTODO", "VJOURNAL"} {
@@ -85,7 +85,6 @@ func TestCapsList_Empty(t *testing.T) {
 // --- Names / set / Get ---
 
 func TestNamesAndGet(t *testing.T) {
-	// isolate from other tests by using unique account names
 	set("test-alice", &Session{CalendarHome: "/cal/alice/"})
 	set("test-bob", &Session{CalendarHome: "/cal/bob/"})
 
