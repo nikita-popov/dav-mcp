@@ -25,7 +25,7 @@ make check    # fmt + vet + test
 ### Single account
 
 Set three environment variables and the server auto-connects on the first
-tool call — no explicit `calendar_connect` needed.
+tool call — no explicit `dav_connect` needed.
 
 | Variable       | Required | Description                         |
 |----------------|----------|-------------------------------------|
@@ -111,18 +111,23 @@ first configured account.
 Every tool accepts an optional `"account"` parameter to target a specific
 configured account. When omitted, the first (primary) account is used.
 
+### Session
+
+| Tool | Description |
+|------|-------------|
+| `dav_connect` | Connect to a CalDAV/CardDAV server and discover calendars and address books |
+| `dav_reconnect` | Reconnect one or all accounts from environment config |
+
 ### Calendar (CalDAV)
 
 | Tool | Description |
 |------|-------------|
-| `calendar_connect` | Connect to a CalDAV server and discover calendars |
-| `calendar_reconnect` | Reconnect one or all accounts from environment config |
-| `calendar_list_calendars` | List all discovered calendar collections |
-| `calendar_get_events` | List events in a time range |
-| `calendar_create_event` | Create a new event |
-| `calendar_create_recurring_event` | Create a recurring event (accepts RFC 5545 `rrule`, e.g. `FREQ=WEEKLY;BYDAY=MO,WE`) |
-| `calendar_update_event` | Update an existing event by UID |
-| `calendar_delete_event` | Delete an event by UID |
+| `calendar_calendar_list` | List all discovered calendar collections |
+| `calendar_event_list` | List events in a time range |
+| `calendar_event_create` | Create a new event |
+| `calendar_event_create_recurring` | Create a recurring event (RFC 5545 `rrule`, e.g. `FREQ=WEEKLY;BYDAY=MO,WE`) |
+| `calendar_event_update` | Update an existing event by UID (only supplied fields are changed) |
+| `calendar_event_delete` | Delete an event by UID |
 
 ### Contacts (CardDAV)
 
