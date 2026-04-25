@@ -2,9 +2,7 @@ REPO := $(shell dirname $(realpath $(lastword $(MAKEFILE_LIST))))
 
 GO = go
 
-# git describe gives v0.1.0 on tag, v0.1.0-3-gabcdef on later commits,
-# bare hash when no tags exist. Always append -dev to distinguish from CI.
-VERSION := $(shell git describe --tags --always --dirty 2>/dev/null && echo -dev | tr -d '\n' || echo dev)
+VERSION := $(shell printf '%s-dev' "$$(git describe --tags --always --dirty 2>/dev/null || echo unknown)")
 LDFLAGS := -s -w -X main.version=$(VERSION)
 
 .PHONY: all build dav-mcp clean
