@@ -251,7 +251,6 @@ func RegisterContacts(s *mcp.Server, cfg config.Config) {
 			}
 			uid := strArg(args, "uid")
 
-			// Fetch current state including server Href and ETag.
 			records, err := dav.QueryContactsFull(ctx, sess.Client, abPath)
 			if err != nil {
 				return nil, fmt.Errorf("contacts_update: fetch contacts: %w", err)
@@ -267,7 +266,6 @@ func RegisterContacts(s *mcp.Server, cfg config.Config) {
 				return nil, fmt.Errorf("contact %q not found in %s", uid, abPath)
 			}
 
-			// Patch: only overwrite fields that were explicitly supplied.
 			c := rec.Contact
 			if v := strArg(args, "name"); v != "" {
 				c.FN = v
@@ -301,23 +299,61 @@ func RegisterContacts(s *mcp.Server, cfg config.Config) {
 	// contacts_delete
 	s.AddTool(
 		"contacts_delete",
-		"Delete a contact by UID",
+		"Delete a contact by UID.",
 		mcp.InputSchema{
 			Type: "object",
 			Properties: map[string]mcp.Property{
-				"uid":     {Type: "string", Description: "Contact UID"},
-				"account": {Type: "string", Description: "Account name (optional)"},
+				"uid":         {Type: "string", Description: "Contact UID"},
+				"addressbook": {Type: "string", Description: "Address book path (optional)"},
+				"account":     {Type: "string", Description: "Account name (optional)"},
 			},
 			Required: []string{"uid"},
 		},
 		func(ctx context.Context, args map[string]any) (any, error) {
 			if err := mcp.ValidateArgs(mcp.ArgSchema{
 				Required: []string{"uid"},
-				Optional: []string{"account"},
+				Optional: []string{"addressbook", "account"},
 			}, args); err != nil {
 				return nil, err
 			}
-			return stub("contacts_delete"), nil
+			sess, err := session(ctx, cfg, strArg(args, "account"))
+			if err != nil {
+				return nil, err
+			}
+			if result, ok := requireCardDAV(sess); !ok {
+				return result, nil
+			}
+			abPath, err := resolveAB(ctx, sess, strArg(args, "addressbook"))
+			if err != nil {
+				return nil, err
+			}
+			uid := strArg(args, "uid")
+
+			// Resolve UID → Href so we can send a conditional DELETE.
+			records, err := dav.QueryContactsFull(ctx, sess.Client, abPath)
+			if err != nil {
+				return nil, fmt.Errorf("contacts_delete: fetch contacts: %w", err)
+			}
+			var rec *dav.ContactRecord
+			for i := range records {
+				if records[i].Contact.UID == uid {
+					rec = &records[i]
+					break
+				}
+			}
+			if rec == nil {
+				return nil, fmt.Errorf("contact %q not found in %s", uid, abPath)
+			}
+
+			if err := sess.Client.Delete(ctx, rec.Href, rec.ETag); err != nil {
+				return nil, fmt.Errorf("contacts_delete: %w", err)
+			}
+			return mcp.ToolResult{
+				Content: []mcp.ContentItem{{
+					Type: "text",
+					Text: fmt.Sprintf("Deleted contact UID=%s from %s", uid, abPath),
+				}},
+			}, nil
 		},
 	)
 }
