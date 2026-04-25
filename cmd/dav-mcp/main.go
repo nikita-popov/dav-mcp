@@ -11,11 +11,15 @@ import (
 	"github.com/nikita-popov/dav-mcp/internal/tools"
 )
 
+// version is set at build time via -ldflags "-X main.version=v1.2.3".
+// Falls back to "dev" for local builds.
+var version = "dev"
+
 func main() {
 	log := mcp.Logger
 
 	// ── startup banner ────────────────────────────────────────────────────────
-	log.Printf("START pid=%d", os.Getpid())
+	log.Printf("START pid=%d version=%s", os.Getpid(), version)
 
 	cfg := config.Load()
 	if cfg.DAVURL != "" {
@@ -37,7 +41,7 @@ func main() {
 	}()
 
 	// ── server ────────────────────────────────────────────────────────────────
-	server := mcp.NewServer("dav-mcp", "0.1.0")
+	server := mcp.NewServer("dav-mcp", version)
 	tools.Register(server, cfg)
 
 	log.Printf("READY — waiting for requests on stdin")
