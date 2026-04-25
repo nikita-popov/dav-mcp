@@ -15,7 +15,9 @@ import (
 
 // minimalCalDAVServer returns a test server that handles the three discovery
 // steps and a catch-all for caldav-query / put / delete requests.
-func minimalCalDAVServer(t *testing.T, extraRoutes map[string]http.HandlerFunc) *httptest.Server {
+// extraRoutes are checked first; prefix "/calendars/user/personal" catches all
+// sub-paths (uid.ics etc.) via the default switch arm.
+func minimalCalDAVServer(t *testing.T, extraHandler http.HandlerFunc) *httptest.Server {
 	t.Helper()
 
 	const principalResp = `<?xml version="1.0"?>
@@ -45,8 +47,9 @@ func minimalCalDAVServer(t *testing.T, extraRoutes map[string]http.HandlerFunc) 
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/xml")
 
-		if h, ok := extraRoutes[r.URL.Path]; ok {
-			h(w, r)
+		// Extra handler intercepts all /calendars/user/personal/* paths.
+		if extraHandler != nil && strings.HasPrefix(r.URL.Path, "/calendars/user/personal") {
+			extraHandler(w, r)
 			return
 		}
 		switch {
@@ -72,9 +75,9 @@ func calendarServer(t *testing.T, cfg config.Config) *mcp.Server {
 
 // connectCalDAV spins up a CalDAV test server, calls dav.Connect and returns
 // the config pointing at that server plus a cleanup function.
-func connectCalDAV(t *testing.T, extraRoutes map[string]http.HandlerFunc) (config.Config, func()) {
+func connectCalDAV(t *testing.T, extraHandler http.HandlerFunc) (config.Config, func()) {
 	t.Helper()
-	srv := minimalCalDAVServer(t, extraRoutes)
+	srv := minimalCalDAVServer(t, extraHandler)
 	cfg := config.Config{
 		Accounts: []config.Account{{
 			Name:     "default",
@@ -112,17 +115,15 @@ func TestCalendarCalendarList(t *testing.T) {
 
 func TestCalendarEventList_Empty(t *testing.T) {
 	emptyReport := `<?xml version="1.0"?><multistatus xmlns="DAV:"></multistatus>`
-	extra := map[string]http.HandlerFunc{
-		"/calendars/user/personal/": func(w http.ResponseWriter, r *http.Request) {
-			if r.Method == "REPORT" {
-				w.Header().Set("Content-Type", "application/xml")
-				w.WriteHeader(207)
-				w.Write([]byte(emptyReport))
-				return
-			}
-			w.WriteHeader(405)
-		},
-	}
+	extra := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "REPORT" {
+			w.Header().Set("Content-Type", "application/xml")
+			w.WriteHeader(207)
+			w.Write([]byte(emptyReport))
+			return
+		}
+		w.WriteHeader(405)
+	})
 	cfg, cleanup := connectCalDAV(t, extra)
 	defer cleanup()
 
@@ -161,16 +162,15 @@ func TestCalendarEventList_MissingParams(t *testing.T) {
 
 func TestCalendarEventCreate(t *testing.T) {
 	var putCalled bool
-	extra := map[string]http.HandlerFunc{
-		"/calendars/user/personal/": func(w http.ResponseWriter, r *http.Request) {
-			if r.Method == "PUT" {
-				putCalled = true
-				w.WriteHeader(201)
-				return
-			}
-			w.WriteHeader(405)
-		},
-	}
+	extra := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "PUT" {
+			putCalled = true
+			w.WriteHeader(201)
+			return
+		}
+		// PROPFIND for collection listing during connect — respond normally.
+		w.WriteHeader(405)
+	})
 	cfg, cleanup := connectCalDAV(t, extra)
 	defer cleanup()
 
@@ -198,16 +198,14 @@ func TestCalendarEventCreate(t *testing.T) {
 
 func TestCalendarEventCreateRecurring(t *testing.T) {
 	var putCalled bool
-	extra := map[string]http.HandlerFunc{
-		"/calendars/user/personal/": func(w http.ResponseWriter, r *http.Request) {
-			if r.Method == "PUT" {
-				putCalled = true
-				w.WriteHeader(201)
-				return
-			}
-			w.WriteHeader(405)
-		},
-	}
+	extra := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "PUT" {
+			putCalled = true
+			w.WriteHeader(201)
+			return
+		}
+		w.WriteHeader(405)
+	})
 	cfg, cleanup := connectCalDAV(t, extra)
 	defer cleanup()
 

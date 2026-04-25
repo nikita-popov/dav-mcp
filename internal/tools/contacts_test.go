@@ -13,13 +13,7 @@ import (
 	"github.com/nikita-popov/dav-mcp/internal/tools"
 )
 
-const testVCard = `BEGIN:VCARD
-VERSION:3.0
-UID:uid-alice-001
-FN:Alice Smith
-EMAIL:alice@example.com
-END:VCARD
-`
+const testVCard = `BEGIN:VCARD\r\nVERSION:3.0\r\nUID:uid-alice-001\r\nFN:Alice Smith\r\nEMAIL:alice@example.com\r\nEND:VCARD\r\n`
 
 const cardDAVReport = `<?xml version="1.0"?>
 <multistatus xmlns="DAV:" xmlns:card="urn:ietf:params:xml:ns:carddav">
@@ -28,7 +22,13 @@ const cardDAVReport = `<?xml version="1.0"?>
     <propstat>
       <prop>
         <getetag>"etag-alice"</getetag>
-        <card:address-data>` + testVCard + `</card:address-data>
+        <card:address-data>BEGIN:VCARD
+VERSION:3.0
+UID:uid-alice-001
+FN:Alice Smith
+EMAIL:alice@example.com
+END:VCARD
+</card:address-data>
       </prop>
       <status>HTTP/1.1 200 OK</status>
     </propstat>
@@ -46,7 +46,9 @@ const abCollections = `<?xml version="1.0"?>
   </response>
 </multistatus>`
 
-func cardDAVServer(t *testing.T, extraRoutes map[string]http.HandlerFunc) *httptest.Server {
+// cardDAVServer returns a test CardDAV server.
+// abHandler is called for any request whose path has prefix /addressbooks/user/default.
+func cardDAVServer(t *testing.T, abHandler http.HandlerFunc) *httptest.Server {
 	t.Helper()
 
 	const principalResp = `<?xml version="1.0"?>
@@ -70,8 +72,8 @@ func cardDAVServer(t *testing.T, extraRoutes map[string]http.HandlerFunc) *httpt
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/xml")
 
-		if h, ok := extraRoutes[r.URL.Path]; ok {
-			h(w, r)
+		if abHandler != nil && strings.HasPrefix(r.URL.Path, "/addressbooks/user/default") {
+			abHandler(w, r)
 			return
 		}
 		switch {
@@ -91,9 +93,9 @@ func cardDAVServer(t *testing.T, extraRoutes map[string]http.HandlerFunc) *httpt
 	}))
 }
 
-func connectCardDAV(t *testing.T, extraRoutes map[string]http.HandlerFunc) (config.Config, func()) {
+func connectCardDAV(t *testing.T, abHandler http.HandlerFunc) (config.Config, func()) {
 	t.Helper()
-	srv := cardDAVServer(t, extraRoutes)
+	srv := cardDAVServer(t, abHandler)
 	cfg := config.Config{
 		Accounts: []config.Account{{
 			Name:     "default",
@@ -120,18 +122,15 @@ func contactsServer(t *testing.T, cfg config.Config) *mcp.Server {
 // ---- contacts_list ----------------------------------------------------------
 
 func TestContactsList(t *testing.T) {
-	extra := map[string]http.HandlerFunc{
-		"/addressbooks/user/default/": func(w http.ResponseWriter, r *http.Request) {
-			if r.Method == "REPORT" {
-				w.Header().Set("Content-Type", "application/xml")
-				w.WriteHeader(207)
-				w.Write([]byte(cardDAVReport))
-				return
-			}
-			w.WriteHeader(405)
-		},
-	}
-	cfg, cleanup := connectCardDAV(t, extra)
+	cfg, cleanup := connectCardDAV(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "REPORT" {
+			w.Header().Set("Content-Type", "application/xml")
+			w.WriteHeader(207)
+			w.Write([]byte(cardDAVReport))
+			return
+		}
+		w.WriteHeader(405)
+	}))
 	defer cleanup()
 
 	s := contactsServer(t, cfg)
@@ -152,14 +151,11 @@ func TestContactsList(t *testing.T) {
 // ---- contacts_get -----------------------------------------------------------
 
 func TestContactsGet_Found(t *testing.T) {
-	extra := map[string]http.HandlerFunc{
-		"/addressbooks/user/default/": func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Content-Type", "application/xml")
-			w.WriteHeader(207)
-			w.Write([]byte(cardDAVReport))
-		},
-	}
-	cfg, cleanup := connectCardDAV(t, extra)
+	cfg, cleanup := connectCardDAV(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/xml")
+		w.WriteHeader(207)
+		w.Write([]byte(cardDAVReport))
+	}))
 	defer cleanup()
 
 	s := contactsServer(t, cfg)
@@ -179,14 +175,11 @@ func TestContactsGet_Found(t *testing.T) {
 }
 
 func TestContactsGet_NotFound(t *testing.T) {
-	extra := map[string]http.HandlerFunc{
-		"/addressbooks/user/default/": func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Content-Type", "application/xml")
-			w.WriteHeader(207)
-			w.Write([]byte(cardDAVReport))
-		},
-	}
-	cfg, cleanup := connectCardDAV(t, extra)
+	cfg, cleanup := connectCardDAV(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/xml")
+		w.WriteHeader(207)
+		w.Write([]byte(cardDAVReport))
+	}))
 	defer cleanup()
 
 	s := contactsServer(t, cfg)
@@ -202,14 +195,11 @@ func TestContactsGet_NotFound(t *testing.T) {
 // ---- contacts_search --------------------------------------------------------
 
 func TestContactsSearch(t *testing.T) {
-	extra := map[string]http.HandlerFunc{
-		"/addressbooks/user/default/": func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Content-Type", "application/xml")
-			w.WriteHeader(207)
-			w.Write([]byte(cardDAVReport))
-		},
-	}
-	cfg, cleanup := connectCardDAV(t, extra)
+	cfg, cleanup := connectCardDAV(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/xml")
+		w.WriteHeader(207)
+		w.Write([]byte(cardDAVReport))
+	}))
 	defer cleanup()
 
 	s := contactsServer(t, cfg)
@@ -232,17 +222,15 @@ func TestContactsSearch(t *testing.T) {
 
 func TestContactsCreate(t *testing.T) {
 	var putCalled bool
-	extra := map[string]http.HandlerFunc{
-		"/addressbooks/user/default/": func(w http.ResponseWriter, r *http.Request) {
-			if r.Method == "PUT" {
-				putCalled = true
-				w.WriteHeader(201)
-				return
-			}
-			w.WriteHeader(405)
-		},
-	}
-	cfg, cleanup := connectCardDAV(t, extra)
+	// Handler receives all /addressbooks/user/default/* — including /<uid>.vcf PUT.
+	cfg, cleanup := connectCardDAV(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "PUT" {
+			putCalled = true
+			w.WriteHeader(201)
+			return
+		}
+		w.WriteHeader(405)
+	}))
 	defer cleanup()
 
 	s := contactsServer(t, cfg)
@@ -269,26 +257,19 @@ func TestContactsCreate(t *testing.T) {
 
 func TestContactsDelete(t *testing.T) {
 	var deletedPath string
-	extra := map[string]http.HandlerFunc{
-		"/addressbooks/user/default/": func(w http.ResponseWriter, r *http.Request) {
-			if r.Method == "REPORT" {
-				w.Header().Set("Content-Type", "application/xml")
-				w.WriteHeader(207)
-				w.Write([]byte(cardDAVReport))
-				return
-			}
+	cfg, cleanup := connectCardDAV(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case "REPORT":
+			w.Header().Set("Content-Type", "application/xml")
+			w.WriteHeader(207)
+			w.Write([]byte(cardDAVReport))
+		case "DELETE":
+			deletedPath = r.URL.Path
+			w.WriteHeader(204)
+		default:
 			w.WriteHeader(405)
-		},
-		"/addressbooks/user/default/alice.vcf": func(w http.ResponseWriter, r *http.Request) {
-			if r.Method == "DELETE" {
-				deletedPath = r.URL.Path
-				w.WriteHeader(204)
-				return
-			}
-			w.WriteHeader(405)
-		},
-	}
-	cfg, cleanup := connectCardDAV(t, extra)
+		}
+	}))
 	defer cleanup()
 
 	s := contactsServer(t, cfg)
@@ -311,14 +292,11 @@ func TestContactsDelete(t *testing.T) {
 }
 
 func TestContactsDelete_NotFound(t *testing.T) {
-	extra := map[string]http.HandlerFunc{
-		"/addressbooks/user/default/": func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Content-Type", "application/xml")
-			w.WriteHeader(207)
-			w.Write([]byte(cardDAVReport))
-		},
-	}
-	cfg, cleanup := connectCardDAV(t, extra)
+	cfg, cleanup := connectCardDAV(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/xml")
+		w.WriteHeader(207)
+		w.Write([]byte(cardDAVReport))
+	}))
 	defer cleanup()
 
 	s := contactsServer(t, cfg)
