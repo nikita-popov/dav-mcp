@@ -129,6 +129,26 @@ configured account. When omitted, the first (primary) account is used.
 | `calendar_event_update` | Update an existing event by UID (only supplied fields are changed) |
 | `calendar_event_delete` | Delete an event by UID |
 
+### Tasks (CalDAV — VTODO)
+
+| Tool | Description |
+|------|-------------|
+| `calendar_todo_list` | List VTODO items; optionally filter by status (`NEEDS-ACTION`, `IN-PROCESS`, `COMPLETED`, `CANCELLED`) |
+| `calendar_todo_get` | Get a single todo by UID |
+| `calendar_todo_create` | Create a new todo (summary, due, priority, status) |
+| `calendar_todo_update` | Update an existing todo by UID (only supplied fields are changed) |
+| `calendar_todo_delete` | Delete a todo by UID |
+
+### Journal (CalDAV — VJOURNAL)
+
+| Tool | Description |
+|------|-------------|
+| `calendar_journal_list` | List VJOURNAL entries; optionally filter by status (`DRAFT`, `FINAL`, `CANCELLED`) |
+| `calendar_journal_get` | Get a single journal entry by UID |
+| `calendar_journal_create` | Create a new journal entry (summary, description, date, status) |
+| `calendar_journal_update` | Update an existing journal entry by UID (only supplied fields are changed) |
+| `calendar_journal_delete` | Delete a journal entry by UID |
+
 ### Contacts (CardDAV)
 
 | Tool | Description |
@@ -165,10 +185,10 @@ DAV_DEBUG=1 DAV_URL=https://dav.example.com DAV_USERNAME=alice DAV_PASSWORD=secr
 cmd/dav-mcp/      entry point
 internal/
   config/         env-based configuration (DAV_URL / DAV_ACCOUNTS)
-  dav/            WebDAV HTTP client (Propfind, Report, Put, Delete)
-  ical/           iCalendar builder and parser
+  dav/            WebDAV HTTP client (Propfind, Report, Put, Delete) + session store
+  ical/           iCalendar builder and parser (VEVENT, VTODO, VJOURNAL)
   mcp/            MCP protocol (stdio transport, JSON-RPC 2.0)
-  tools/          tool handlers (calendar, contacts)
+  tools/          tool handlers (calendar, tasks, journal, contacts)
   vcard/          vCard 4.0 builder and parser
 ```
 
