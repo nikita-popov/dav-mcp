@@ -140,17 +140,18 @@ func TestPutEvent_SendsPUT(t *testing.T) {
 }
 
 func TestDeleteEvent_SendsDELETE(t *testing.T) {
-	var gotMethod, gotPath string
+	var gotMethod, gotPath, gotIfMatch string
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotMethod = r.Method
 		gotPath = r.URL.Path
+		gotIfMatch = r.Header.Get("If-Match")
 		w.WriteHeader(204)
 	}))
 	defer srv.Close()
 
 	c, _ := New(srv.URL, "u", "p")
-	err := DeleteEvent(context.Background(), c, "/calendars/user/personal/", "abc@test")
+	err := DeleteEvent(context.Background(), c, "/calendars/user/personal/", "abc@test", `"etag-abc"`)
 	if err != nil {
 		t.Fatalf("DeleteEvent: %v", err)
 	}
@@ -159,5 +160,8 @@ func TestDeleteEvent_SendsDELETE(t *testing.T) {
 	}
 	if gotPath != "/calendars/user/personal/abc@test.ics" {
 		t.Errorf("path=%q", gotPath)
+	}
+	if gotIfMatch != `"etag-abc"` {
+		t.Errorf("If-Match=%q, want \"etag-abc\"", gotIfMatch)
 	}
 }
