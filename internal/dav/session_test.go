@@ -49,12 +49,19 @@ func fullDiscoveryServer(t *testing.T) *httptest.Server {
 	}))
 }
 
+// clearStore resets the global session store between tests.
+func clearStore() {
+	mu.Lock()
+	defer mu.Unlock()
+	store = map[string]*Session{}
+}
+
 func TestConnect_Success(t *testing.T) {
-	setSession(nil)
+	clearStore()
 	srv := fullDiscoveryServer(t)
 	defer srv.Close()
 
-	session, err := Connect(context.Background(), srv.URL, "user", "pass")
+	session, err := Connect(context.Background(), "default", srv.URL, "user", "pass")
 	if err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
@@ -67,25 +74,25 @@ func TestConnect_Success(t *testing.T) {
 }
 
 func TestConnect_SetsSingleton(t *testing.T) {
-	setSession(nil)
+	clearStore()
 	srv := fullDiscoveryServer(t)
 	defer srv.Close()
 
-	Connect(context.Background(), srv.URL, "user", "pass") //nolint:errcheck
-	if Get() == nil {
+	Connect(context.Background(), "default", srv.URL, "user", "pass") //nolint:errcheck
+	if Get("") == nil {
 		t.Fatal("singleton not set after Connect")
 	}
 }
 
 func TestConnect_BadURL(t *testing.T) {
-	_, err := Connect(context.Background(), "://bad", "u", "p")
+	_, err := Connect(context.Background(), "default", "://bad", "u", "p")
 	if err == nil {
 		t.Fatal("expected error for bad URL")
 	}
 }
 
 func TestConnect_PrincipalNotFound(t *testing.T) {
-	setSession(nil)
+	clearStore()
 	emptySrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/xml")
 		w.WriteHeader(207)
@@ -93,21 +100,21 @@ func TestConnect_PrincipalNotFound(t *testing.T) {
 	}))
 	defer emptySrv.Close()
 
-	_, err := Connect(context.Background(), emptySrv.URL, "u", "p")
+	_, err := Connect(context.Background(), "default", emptySrv.URL, "u", "p")
 	if err == nil {
 		t.Fatal("expected error when principal not found")
 	}
 }
 
 func TestGet_NilBeforeConnect(t *testing.T) {
-	setSession(nil)
-	if Get() != nil {
+	clearStore()
+	if Get("") != nil {
 		t.Fatal("expected nil before Connect")
 	}
 }
 
 func TestConnect_StoresAddressbookHome(t *testing.T) {
-	setSession(nil)
+	clearStore()
 
 	principalWithAB := `<?xml version="1.0"?>
 <multistatus xmlns="DAV:">
@@ -154,7 +161,7 @@ func TestConnect_StoresAddressbookHome(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	session, err := Connect(context.Background(), srv.URL, "u", "p")
+	session, err := Connect(context.Background(), "default", srv.URL, "u", "p")
 	if err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
