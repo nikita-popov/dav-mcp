@@ -120,6 +120,7 @@ func RegisterTodo(s *mcp.Server, cfg config.Config) {
 				"description": {Type: "string", Description: "Details (optional)"},
 				"due":         {Type: "string", Description: "Due datetime, ISO 8601 (optional)"},
 				"priority":    {Type: "number", Description: "Priority 1 (highest) – 9 (lowest), 0 = undefined (optional)"},
+				"status":      {Type: "string", Description: "Initial status: NEEDS-ACTION, IN-PROCESS (optional, defaults to NEEDS-ACTION)"},
 				"calendar":    {Type: "string", Description: "Calendar path from calendar_calendar_list (optional)"},
 				"account":     {Type: "string", Description: "Account name (optional)"},
 			},
@@ -128,7 +129,7 @@ func RegisterTodo(s *mcp.Server, cfg config.Config) {
 		func(ctx context.Context, args map[string]any) (any, error) {
 			if err := mcp.ValidateArgs(mcp.ArgSchema{
 				Required: []string{"summary"},
-				Optional: []string{"description", "due", "priority", "calendar", "account"},
+				Optional: []string{"description", "due", "priority", "status", "calendar", "account"},
 			}, args); err != nil {
 				return nil, err
 			}
@@ -148,6 +149,7 @@ func RegisterTodo(s *mcp.Server, cfg config.Config) {
 			todo := ical.Todo{
 				Summary:     strArg(args, "summary"),
 				Description: strArg(args, "description"),
+				Status:      strings.ToUpper(strArg(args, "status")),
 			}
 			if v := strArg(args, "due"); v != "" {
 				t, err := time.Parse(time.RFC3339, v)
@@ -233,10 +235,11 @@ func RegisterTodo(s *mcp.Server, cfg config.Config) {
 			if p, ok := args["priority"].(float64); ok {
 				todo.Priority = int(p)
 			}
-			// status is stored in iCal but ical.Todo doesn't have Status field;
-			// rebuild with a wrapper that includes STATUS if provided.
-			icsData := buildTodoWithStatus(todo, strArg(args, "status"))
+			if v := strArg(args, "status"); v != "" {
+				todo.Status = strings.ToUpper(v)
+			}
 
+			icsData := ical.BuildTodo(todo)
 			if err := dav.PutTodoHref(ctx, sess.Client, ref.rec.Href, icsData, ref.rec.ETag); err != nil {
 				return nil, fmt.Errorf("calendar_todo_update: %w", err)
 			}
@@ -325,22 +328,11 @@ func parsedToTodo(p ical.ParsedTodo) ical.Todo {
 		Description: p.Description,
 		Due:         p.Due,
 		Priority:    p.Priority,
+		Status:      p.Status,
 	}
 }
 
-// buildTodoWithStatus wraps ical.BuildTodo and injects STATUS if non-empty.
-// ical.Todo intentionally has no Status field (create always = NEEDS-ACTION);
-// on update we may need to set it explicitly.
-func buildTodoWithStatus(t ical.Todo, status string) string {
-	data := ical.BuildTodo(t)
-	if status == "" {
-		return data
-	}
-	// Inject STATUS before END:VTODO
-	return strings.ReplaceAll(data, "END:VTODO", "STATUS:"+strings.ToUpper(status)+"\r\nEND:VTODO")
-}
-
-// todoCalPath returns calendar path from args or falls back to session primary.
+// todoCalPath returns calendar path from args or the first VTODO-capable calendar.
 func todoCalPath(args map[string]any, sess *dav.Session) string {
 	if v := strArg(args, "calendar"); v != "" {
 		return v

@@ -119,6 +119,7 @@ func RegisterJournal(s *mcp.Server, cfg config.Config) {
 				"summary":     {Type: "string", Description: "Journal title"},
 				"description": {Type: "string", Description: "Journal body text (optional)"},
 				"date":        {Type: "string", Description: "Journal date, ISO 8601 date or datetime (optional, defaults to today)"},
+				"status":      {Type: "string", Description: "Initial status: DRAFT, FINAL (optional)"},
 				"calendar":    {Type: "string", Description: "Calendar path from calendar_calendar_list (optional)"},
 				"account":     {Type: "string", Description: "Account name (optional)"},
 			},
@@ -127,7 +128,7 @@ func RegisterJournal(s *mcp.Server, cfg config.Config) {
 		func(ctx context.Context, args map[string]any) (any, error) {
 			if err := mcp.ValidateArgs(mcp.ArgSchema{
 				Required: []string{"summary"},
-				Optional: []string{"description", "date", "calendar", "account"},
+				Optional: []string{"description", "date", "status", "calendar", "account"},
 			}, args); err != nil {
 				return nil, err
 			}
@@ -159,6 +160,7 @@ func RegisterJournal(s *mcp.Server, cfg config.Config) {
 				Summary:     strArg(args, "summary"),
 				Description: strArg(args, "description"),
 				Date:        date,
+				Status:      strings.ToUpper(strArg(args, "status")),
 			}
 			icsData := ical.BuildJournal(j)
 			parsed := ical.ParseJournals(icsData)
@@ -220,6 +222,7 @@ func RegisterJournal(s *mcp.Server, cfg config.Config) {
 				Summary:     ref.rec.Journal.Summary,
 				Description: ref.rec.Journal.Description,
 				Date:        ref.rec.Journal.Date,
+				Status:      ref.rec.Journal.Status,
 			}
 			if v := strArg(args, "summary"); v != "" {
 				j.Summary = v
@@ -236,8 +239,11 @@ func RegisterJournal(s *mcp.Server, cfg config.Config) {
 					return nil, fmt.Errorf("invalid date %q: use ISO 8601", v)
 				}
 			}
+			if v := strArg(args, "status"); v != "" {
+				j.Status = strings.ToUpper(v)
+			}
 
-			icsData := buildJournalWithStatus(j, strArg(args, "status"))
+			icsData := ical.BuildJournal(j)
 			if err := dav.PutJournalHref(ctx, sess.Client, ref.rec.Href, icsData, ref.rec.ETag); err != nil {
 				return nil, fmt.Errorf("calendar_journal_update: %w", err)
 			}
@@ -316,15 +322,6 @@ func findJournalByUID(ctx context.Context, sess *dav.Session, uid, calendarHref 
 		return &journalRef{rec: rec, calendarHref: cal.Href}, nil
 	}
 	return nil, fmt.Errorf("journal UID=%q not found", uid)
-}
-
-// buildJournalWithStatus wraps ical.BuildJournal and injects STATUS if non-empty.
-func buildJournalWithStatus(j ical.Journal, status string) string {
-	data := ical.BuildJournal(j)
-	if status == "" {
-		return data
-	}
-	return strings.ReplaceAll(data, "END:VJOURNAL", "STATUS:"+strings.ToUpper(status)+"\r\nEND:VJOURNAL")
 }
 
 // journalCalPath returns calendar path from args or the first VJOURNAL-capable calendar.

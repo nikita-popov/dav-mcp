@@ -33,6 +33,7 @@ type Todo struct {
 	Description string
 	Due         time.Time // zero = no due date
 	Priority    int       // 0 = undefined, 1-9 per RFC 5545
+	Status      string    // e.g. "NEEDS-ACTION", "COMPLETED", "IN-PROCESS", "CANCELLED"
 }
 
 // Journal holds the fields for a VJOURNAL component.
@@ -41,6 +42,7 @@ type Journal struct {
 	Summary     string
 	Description string
 	Date        time.Time
+	Status      string // e.g. "DRAFT", "FINAL", "CANCELLED"
 }
 
 // BuildEvent produces a VCALENDAR/VEVENT iCalendar string.
@@ -96,6 +98,9 @@ func BuildTodo(t Todo) string {
 	prop(&b, "UID", t.UID)
 	prop(&b, "DTSTAMP", now)
 	prop(&b, "SUMMARY", escape(t.Summary))
+	if t.Status != "" {
+		prop(&b, "STATUS", t.Status)
+	}
 	if !t.Due.IsZero() {
 		prop(&b, "DUE", fmtTime(t.Due.UTC()))
 	}
@@ -125,6 +130,9 @@ func BuildJournal(j Journal) string {
 	prop(&b, "DTSTAMP", now)
 	prop(&b, "DTSTART;VALUE=DATE", j.Date.UTC().Format(dateFormat))
 	prop(&b, "SUMMARY", escape(j.Summary))
+	if j.Status != "" {
+		prop(&b, "STATUS", j.Status)
+	}
 	if j.Description != "" {
 		prop(&b, "DESCRIPTION", escape(j.Description))
 	}
