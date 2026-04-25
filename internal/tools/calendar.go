@@ -310,7 +310,54 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 			}, args); err != nil {
 				return nil, err
 			}
-			return stub("calendar_create_recurring_event"), nil
+
+			sess, err := session(ctx, cfg, strArg(args, "account"))
+			if err != nil {
+				return nil, err
+			}
+
+			startT, err := time.Parse(time.RFC3339, strArg(args, "start"))
+			if err != nil {
+				return nil, fmt.Errorf("invalid start: %w", err)
+			}
+			endT, err := time.Parse(time.RFC3339, strArg(args, "end"))
+			if err != nil {
+				return nil, fmt.Errorf("invalid end: %w", err)
+			}
+
+			calPath := strArg(args, "calendar")
+			if calPath == "" {
+				if len(sess.Calendars) == 0 {
+					return nil, fmt.Errorf("no calendars found in session")
+				}
+				calPath = sess.Calendars[0].Href
+			}
+
+			event := ical.Event{
+				Summary:     strArg(args, "summary"),
+				Start:       startT.UTC(),
+				End:         endT.UTC(),
+				Description: strArg(args, "description"),
+				RRule:       strArg(args, "rrule"),
+			}
+			icsData := ical.BuildEvent(event)
+			parsed := ical.ParseEvents(icsData)
+			uid := ""
+			if len(parsed) > 0 {
+				uid = parsed[0].UID
+			}
+
+			if err := dav.PutEvent(ctx, sess.Client, calPath, uid, icsData, ""); err != nil {
+				return nil, fmt.Errorf("create recurring event: %w", err)
+			}
+
+			return mcp.ToolResult{
+				Content: []mcp.ContentItem{{
+					Type: "text",
+					Text: fmt.Sprintf("Recurring event created.\nUID: %s\nRRULE: %s\nCalendar: %s",
+						uid, strArg(args, "rrule"), calPath),
+				}},
+			}, nil
 		},
 	)
 
@@ -406,23 +453,43 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 	// calendar_delete_event
 	s.AddTool(
 		"calendar_delete_event",
-		"Delete a calendar event by UID",
+		"Delete a calendar event by UID.",
 		mcp.InputSchema{
 			Type: "object",
 			Properties: map[string]mcp.Property{
-				"uid":     {Type: "string", Description: "Event UID"},
-				"account": {Type: "string", Description: "Account name (optional)"},
+				"uid":      {Type: "string", Description: "Event UID"},
+				"calendar": {Type: "string", Description: "Calendar path (optional, searches all calendars if omitted)"},
+				"account":  {Type: "string", Description: "Account name (optional)"},
 			},
 			Required: []string{"uid"},
 		},
 		func(ctx context.Context, args map[string]any) (any, error) {
 			if err := mcp.ValidateArgs(mcp.ArgSchema{
 				Required: []string{"uid"},
-				Optional: []string{"account"},
+				Optional: []string{"calendar", "account"},
 			}, args); err != nil {
 				return nil, err
 			}
-			return stub("calendar_delete_event"), nil
+			sess, err := session(ctx, cfg, strArg(args, "account"))
+			if err != nil {
+				return nil, err
+			}
+			uid := strArg(args, "uid")
+			calPath := strArg(args, "calendar")
+
+			rec, err := findEventByUID(ctx, sess, uid, calPath)
+			if err != nil {
+				return nil, err
+			}
+			if err := sess.Client.Delete(ctx, rec.Href, rec.ETag); err != nil {
+				return nil, fmt.Errorf("calendar_delete_event: %w", err)
+			}
+			return mcp.ToolResult{
+				Content: []mcp.ContentItem{{
+					Type: "text",
+					Text: fmt.Sprintf("Deleted event %q (UID: %s)", rec.Event.Summary, uid),
+				}},
+			}, nil
 		},
 	)
 }
