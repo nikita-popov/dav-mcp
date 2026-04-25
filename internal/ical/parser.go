@@ -2,6 +2,7 @@ package ical
 
 import (
 	"bufio"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -15,6 +16,7 @@ type ParsedEvent struct {
 	Start       time.Time
 	End         time.Time
 	RRule       string
+	Sequence    int
 }
 
 // ParseEvents extracts all VEVENT blocks from an iCalendar string.
@@ -53,6 +55,10 @@ func ParseEvents(data string) []ParsedEvent {
 				cur.Location = unescape(value)
 			case "RRULE":
 				cur.RRule = value
+			case "SEQUENCE":
+				if n, err := strconv.Atoi(value); err == nil {
+					cur.Sequence = n
+				}
 			case "DTSTART", "DTSTART;TZID", "DTSTART;VALUE=DATE":
 				cur.Start = parseTime(name, value)
 			case "DTEND", "DTEND;TZID", "DTEND;VALUE=DATE":

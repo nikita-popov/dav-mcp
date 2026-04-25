@@ -23,6 +23,7 @@ type Event struct {
 	End         time.Time
 	AllDay      bool   // if true, use DATE format for DTSTART/DTEND
 	RRule       string // raw RRULE value, e.g. "FREQ=WEEKLY;BYDAY=MO,WE"
+	Sequence    int    // incremented on each update per RFC 5545 §3.8.7.4
 }
 
 // Todo holds the fields for a VTODO component.
@@ -55,6 +56,10 @@ func BuildEvent(e Event) string {
 	prop(&b, "BEGIN", "VEVENT")
 	prop(&b, "UID", e.UID)
 	prop(&b, "DTSTAMP", now)
+	prop(&b, "LAST-MODIFIED", now)
+	if e.Sequence > 0 {
+		prop(&b, "SEQUENCE", fmt.Sprintf("%d", e.Sequence))
+	}
 	if e.AllDay {
 		prop(&b, "DTSTART;VALUE=DATE", e.Start.UTC().Format(dateFormat))
 		prop(&b, "DTEND;VALUE=DATE", e.End.UTC().Format(dateFormat))

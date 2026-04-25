@@ -216,28 +216,85 @@ func RegisterContacts(s *mcp.Server, cfg config.Config) {
 	// contacts_update
 	s.AddTool(
 		"contacts_update",
-		"Update an existing contact",
+		"Update an existing contact. Only the fields you provide are changed; omitted fields keep their current values.",
 		mcp.InputSchema{
 			Type: "object",
 			Properties: map[string]mcp.Property{
-				"uid":     {Type: "string", Description: "Contact UID"},
-				"name":    {Type: "string", Description: "New full name (optional)"},
-				"email":   {Type: "string", Description: "New email (optional)"},
-				"phone":   {Type: "string", Description: "New phone (optional)"},
-				"org":     {Type: "string", Description: "New organisation (optional)"},
-				"note":    {Type: "string", Description: "New note (optional)"},
-				"account": {Type: "string", Description: "Account name (optional)"},
+				"uid":         {Type: "string", Description: "Contact UID (required)"},
+				"name":        {Type: "string", Description: "New full name (optional)"},
+				"email":       {Type: "string", Description: "New email (optional)"},
+				"phone":       {Type: "string", Description: "New phone (optional)"},
+				"org":         {Type: "string", Description: "New organisation (optional)"},
+				"note":        {Type: "string", Description: "New note (optional)"},
+				"addressbook": {Type: "string", Description: "Address book path (optional)"},
+				"account":     {Type: "string", Description: "Account name (optional)"},
 			},
 			Required: []string{"uid"},
 		},
 		func(ctx context.Context, args map[string]any) (any, error) {
 			if err := mcp.ValidateArgs(mcp.ArgSchema{
 				Required: []string{"uid"},
-				Optional: []string{"name", "email", "phone", "org", "note", "account"},
+				Optional: []string{"name", "email", "phone", "org", "note", "addressbook", "account"},
 			}, args); err != nil {
 				return nil, err
 			}
-			return stub("contacts_update"), nil
+			sess, err := session(ctx, cfg, strArg(args, "account"))
+			if err != nil {
+				return nil, err
+			}
+			if result, ok := requireCardDAV(sess); !ok {
+				return result, nil
+			}
+			abPath, err := resolveAB(ctx, sess, strArg(args, "addressbook"))
+			if err != nil {
+				return nil, err
+			}
+			uid := strArg(args, "uid")
+
+			// Fetch current state including server Href and ETag.
+			records, err := dav.QueryContactsFull(ctx, sess.Client, abPath)
+			if err != nil {
+				return nil, fmt.Errorf("contacts_update: fetch contacts: %w", err)
+			}
+			var rec *dav.ContactRecord
+			for i := range records {
+				if records[i].Contact.UID == uid {
+					rec = &records[i]
+					break
+				}
+			}
+			if rec == nil {
+				return nil, fmt.Errorf("contact %q not found in %s", uid, abPath)
+			}
+
+			// Patch: only overwrite fields that were explicitly supplied.
+			c := rec.Contact
+			if v := strArg(args, "name"); v != "" {
+				c.FN = v
+			}
+			if _, ok := args["email"]; ok {
+				c.Email = strArg(args, "email")
+			}
+			if _, ok := args["phone"]; ok {
+				c.Phone = strArg(args, "phone")
+			}
+			if _, ok := args["org"]; ok {
+				c.Org = strArg(args, "org")
+			}
+			if _, ok := args["note"]; ok {
+				c.Notes = strArg(args, "note")
+			}
+
+			vcf := vcard.Build(c)
+			if err := dav.PutContactHref(ctx, sess.Client, rec.Href, vcf, rec.ETag); err != nil {
+				return nil, fmt.Errorf("contacts_update: put: %w", err)
+			}
+			return mcp.ToolResult{
+				Content: []mcp.ContentItem{{
+					Type: "text",
+					Text: fmt.Sprintf("Updated contact %q (UID: %s)", c.FN, uid),
+				}},
+			}, nil
 		},
 	)
 

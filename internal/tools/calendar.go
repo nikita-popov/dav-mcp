@@ -317,16 +317,17 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 	// calendar_update_event
 	s.AddTool(
 		"calendar_update_event",
-		"Update an existing calendar event",
+		"Update an existing calendar event. Only supplied fields are changed; omitted fields keep their current values.",
 		mcp.InputSchema{
 			Type: "object",
 			Properties: map[string]mcp.Property{
-				"uid":         {Type: "string", Description: "Event UID"},
+				"uid":         {Type: "string", Description: "Event UID (required)"},
 				"summary":     {Type: "string", Description: "New title (optional)"},
 				"start":       {Type: "string", Description: "New start, ISO 8601 (optional)"},
 				"end":         {Type: "string", Description: "New end, ISO 8601 (optional)"},
 				"description": {Type: "string", Description: "New description (optional)"},
 				"location":    {Type: "string", Description: "New location (optional)"},
+				"calendar":    {Type: "string", Description: "Calendar path (optional, searches all calendars if omitted)"},
 				"account":     {Type: "string", Description: "Account name (optional)"},
 			},
 			Required: []string{"uid"},
@@ -334,11 +335,71 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 		func(ctx context.Context, args map[string]any) (any, error) {
 			if err := mcp.ValidateArgs(mcp.ArgSchema{
 				Required: []string{"uid"},
-				Optional: []string{"summary", "start", "end", "description", "location", "account"},
+				Optional: []string{"summary", "start", "end", "description", "location", "calendar", "account"},
 			}, args); err != nil {
 				return nil, err
 			}
-			return stub("calendar_update_event"), nil
+			sess, err := session(ctx, cfg, strArg(args, "account"))
+			if err != nil {
+				return nil, err
+			}
+			uid := strArg(args, "uid")
+
+			// Determine which calendar(s) to search.
+			calPath := strArg(args, "calendar")
+			rec, err := findEventByUID(ctx, sess, uid, calPath)
+			if err != nil {
+				return nil, err
+			}
+
+			// Patch non-empty fields.
+			ev := rec.Event
+			if v := strArg(args, "summary"); v != "" {
+				ev.Summary = v
+			}
+			if v := strArg(args, "start"); v != "" {
+				t, err := time.Parse(time.RFC3339, v)
+				if err != nil {
+					return nil, fmt.Errorf("invalid start: %w", err)
+				}
+				ev.Start = t.UTC()
+			}
+			if v := strArg(args, "end"); v != "" {
+				t, err := time.Parse(time.RFC3339, v)
+				if err != nil {
+					return nil, fmt.Errorf("invalid end: %w", err)
+				}
+				ev.End = t.UTC()
+			}
+			if _, ok := args["description"]; ok {
+				ev.Description = strArg(args, "description")
+			}
+			if _, ok := args["location"]; ok {
+				ev.Location = strArg(args, "location")
+			}
+
+			// Bump SEQUENCE so clients know the event was modified.
+			ev.Sequence++
+
+			icsData := ical.BuildEvent(ical.Event{
+				UID:         ev.UID,
+				Summary:     ev.Summary,
+				Description: ev.Description,
+				Location:    ev.Location,
+				Start:       ev.Start,
+				End:         ev.End,
+				RRule:       ev.RRule,
+				Sequence:    ev.Sequence,
+			})
+			if err := dav.PutEventHref(ctx, sess.Client, rec.Href, icsData, rec.ETag); err != nil {
+				return nil, fmt.Errorf("calendar_update_event: put: %w", err)
+			}
+			return mcp.ToolResult{
+				Content: []mcp.ContentItem{{
+					Type: "text",
+					Text: fmt.Sprintf("Updated event %q (UID: %s)", ev.Summary, uid),
+				}},
+			}, nil
 		},
 	)
 
@@ -364,6 +425,26 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 			return stub("calendar_delete_event"), nil
 		},
 	)
+}
+
+// findEventByUID searches for an event by UID in the given calendar path,
+// or across all calendars in the session if calPath is empty.
+func findEventByUID(ctx context.Context, sess *dav.Session, uid, calPath string) (*dav.EventRecord, error) {
+	if calPath != "" {
+		return dav.QueryEventByUID(ctx, sess.Client, calPath, uid)
+	}
+	var lastErr error
+	for _, cal := range sess.Calendars {
+		rec, err := dav.QueryEventByUID(ctx, sess.Client, cal.Href, uid)
+		if err == nil {
+			return rec, nil
+		}
+		lastErr = err
+	}
+	if lastErr != nil {
+		return nil, fmt.Errorf("event UID %q not found in any calendar: %w", uid, lastErr)
+	}
+	return nil, fmt.Errorf("event UID %q not found (no calendars in session)", uid)
 }
 
 // formatCalendars renders the session state as human-readable text for the LLM.

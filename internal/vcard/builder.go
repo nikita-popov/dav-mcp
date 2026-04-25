@@ -8,6 +8,8 @@ import (
 const vcardVersion = "4.0"
 
 // Contact holds the fields for a vCard 4.0 component.
+// Href and ETag are transport metadata populated when the contact is fetched
+// from a CardDAV server; they are not serialised into the vCard itself.
 type Contact struct {
 	UID   string
 	FN    string // formatted/full name (required by RFC 6350)
@@ -15,6 +17,10 @@ type Contact struct {
 	Phone string
 	Org   string
 	Notes string
+
+	// Transport metadata — populated by QueryContacts, not part of vCard data.
+	Href string
+	ETag string
 }
 
 // Build produces a vCard 4.0 string for the given contact.
