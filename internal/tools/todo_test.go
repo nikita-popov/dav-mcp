@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -15,86 +16,25 @@ import (
 	"github.com/nikita-popov/dav-mcp/internal/tools"
 )
 
-// minimalCalDAVServerVTODO is like minimalCalDAVServer but advertises VTODO
-// support in the collections PROPFIND response.
-func minimalCalDAVServerVTODO(t *testing.T, extraHandler http.HandlerFunc) *testServerVTODO {
-	t.Helper()
-
-	const principalResp = `<?xml version="1.0"?>
-<multistatus xmlns="DAV:">
-  <response><href>/</href>
-    <propstat><prop><current-user-principal><href>/principals/user/</href></current-user-principal></prop>
-    <status>HTTP/1.1 200 OK</status></propstat>
-  </response>
-</multistatus>`
-
-	const calHomeResp = `<?xml version="1.0"?>
-<multistatus xmlns="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
-  <response><href>/principals/user/</href>
-    <propstat><prop><c:calendar-home-set><href>/calendars/user/</href></c:calendar-home-set></prop>
-    <status>HTTP/1.1 200 OK</status></propstat>
-  </response>
-</multistatus>`
-
-	const collectionsResp = `<?xml version="1.0"?>
-<multistatus xmlns="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
-  <response><href>/calendars/user/personal/</href>
-    <propstat><prop>
-      <displayname>Personal</displayname>
-      <resourcetype><collection/></resourcetype>
-      <c:supported-calendar-component-set>
-        <c:comp name="VTODO"/>
-      </c:supported-calendar-component-set>
-    </prop>
-    <status>HTTP/1.1 200 OK</status></propstat>
-  </response>
-</multistatus>`
-
-	srv := httpTestNewServer(t, func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/xml")
-		if extraHandler != nil && strings.HasPrefix(r.URL.Path, "/calendars/user/personal") {
-			extraHandler(w, r)
-			return
-		}
-		switch {
-		case strings.HasPrefix(r.URL.Path, "/calendars"):
-			w.WriteHeader(207)
-			w.Write([]byte(collectionsResp))
-		case strings.HasPrefix(r.URL.Path, "/principals"):
-			w.WriteHeader(207)
-			w.Write([]byte(calHomeResp))
-		default:
-			w.WriteHeader(207)
-			w.Write([]byte(principalResp))
-		}
-	})
-	return &testServerVTODO{srv: srv}
-}
-
-type testServerVTODO struct {
-	srv interface{ URL() string; Close() }
-}
-
 // connectTodo creates a VTODO-capable CalDAV test session and returns cfg + cleanup.
 func connectTodo(t *testing.T, extraHandler http.HandlerFunc) (config.Config, func()) {
 	t.Helper()
 
-	var (
-		principalBody = []byte(`<?xml version="1.0"?>
+	principalBody := []byte(`<?xml version="1.0"?>
 <multistatus xmlns="DAV:">
   <response><href>/</href>
     <propstat><prop><current-user-principal><href>/principals/user/</href></current-user-principal></prop>
     <status>HTTP/1.1 200 OK</status></propstat>
   </response>
 </multistatus>`)
-		calHomeBody = []byte(`<?xml version="1.0"?>
+	calHomeBody := []byte(`<?xml version="1.0"?>
 <multistatus xmlns="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
   <response><href>/principals/user/</href>
     <propstat><prop><c:calendar-home-set><href>/calendars/user/</href></c:calendar-home-set></prop>
     <status>HTTP/1.1 200 OK</status></propstat>
   </response>
 </multistatus>`)
-		collectionsBody = []byte(`<?xml version="1.0"?>
+	collectionsBody := []byte(`<?xml version="1.0"?>
 <multistatus xmlns="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
   <response><href>/calendars/user/personal/</href>
     <propstat><prop>
@@ -105,10 +45,8 @@ func connectTodo(t *testing.T, extraHandler http.HandlerFunc) (config.Config, fu
     <status>HTTP/1.1 200 OK</status></propstat>
   </response>
 </multistatus>`)
-	)
 
-	var srv *testHTTPServer
-	srv = newTestHTTPServer(t, func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/xml")
 		if extraHandler != nil && strings.HasPrefix(r.URL.Path, "/calendars/user/personal") {
 			extraHandler(w, r)
@@ -125,7 +63,7 @@ func connectTodo(t *testing.T, extraHandler http.HandlerFunc) (config.Config, fu
 			w.WriteHeader(207)
 			w.Write(principalBody)
 		}
-	})
+	}))
 
 	cfg := config.Config{
 		Accounts: []config.Account{{
@@ -149,9 +87,9 @@ func todoServer(t *testing.T, cfg config.Config) *mcp.Server {
 	return s
 }
 
-// todoVCalendar returns a minimal VTODO REPORT response for the given uid/summary.
+// todoVCalendar returns a minimal VTODO REPORT response for the given uid/summary/status.
 func todoVCalendar(uid, summary, status string) string {
-	parsed := ical.BuildTodo(ical.Todo{
+	data := ical.BuildTodo(ical.Todo{
 		UID:     uid,
 		Summary: summary,
 		Status:  status,
@@ -165,7 +103,7 @@ func todoVCalendar(uid, summary, status string) string {
       <c:calendar-data>%s</c:calendar-data>
     </prop><status>HTTP/1.1 200 OK</status></propstat>
   </response>
-</multistatus>`, uid, parsed)
+</multistatus>`, uid, data)
 }
 
 // ---- calendar_todo_list -------------------------------------------------------
@@ -435,19 +373,4 @@ func TestTodoDelete_MissingUID(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for missing uid")
 	}
-}
-
-// ---- testHTTPServer helper (shared with journal_test) -----------------------
-
-type testHTTPServer struct {
-	URL  string
-	close func()
-}
-
-func (s *testHTTPServer) Close() { s.close() }
-
-func newTestHTTPServer(t *testing.T, h http.HandlerFunc) *testHTTPServer {
-	t.Helper()
-	import_httptest := httptest.NewServer(h)
-	return &testHTTPServer{URL: import_httptest.URL, close: import_httptest.Close}
 }

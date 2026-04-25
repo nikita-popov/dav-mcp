@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/nikita-popov/dav-mcp/internal/tools"
 )
 
+// connectJournal creates a VJOURNAL-capable CalDAV test session and returns cfg + cleanup.
 func connectJournal(t *testing.T, extraHandler http.HandlerFunc) (config.Config, func()) {
 	t.Helper()
 
@@ -43,8 +45,7 @@ func connectJournal(t *testing.T, extraHandler http.HandlerFunc) (config.Config,
   </response>
 </multistatus>`)
 
-	var srvURL string
-	import_srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/xml")
 		if extraHandler != nil && strings.HasPrefix(r.URL.Path, "/calendars/user/personal") {
 			extraHandler(w, r)
@@ -62,21 +63,20 @@ func connectJournal(t *testing.T, extraHandler http.HandlerFunc) (config.Config,
 			w.Write(principalBody)
 		}
 	}))
-	srvURL = import_srv.URL
 
 	cfg := config.Config{
 		Accounts: []config.Account{{
 			Name:     "journal-test",
-			URL:      srvURL,
+			URL:      srv.URL,
 			Username: "user",
 			Password: "pass",
 		}},
 	}
-	if _, err := dav.Connect(context.Background(), "journal-test", srvURL, "user", "pass"); err != nil {
-		import_srv.Close()
+	if _, err := dav.Connect(context.Background(), "journal-test", srv.URL, "user", "pass"); err != nil {
+		srv.Close()
 		t.Fatalf("dav.Connect: %v", err)
 	}
-	return cfg, import_srv.Close
+	return cfg, srv.Close
 }
 
 func journalServer(t *testing.T, cfg config.Config) *mcp.Server {
@@ -86,8 +86,9 @@ func journalServer(t *testing.T, cfg config.Config) *mcp.Server {
 	return s
 }
 
+// journalVCalendar returns a minimal VJOURNAL REPORT response for the given uid/summary/status.
 func journalVCalendar(uid, summary, status string) string {
-	parsed := ical.BuildJournal(ical.Journal{
+	data := ical.BuildJournal(ical.Journal{
 		UID:     uid,
 		Summary: summary,
 		Status:  status,
@@ -101,7 +102,7 @@ func journalVCalendar(uid, summary, status string) string {
       <c:calendar-data>%s</c:calendar-data>
     </prop><status>HTTP/1.1 200 OK</status></propstat>
   </response>
-</multistatus>`, uid, parsed)
+</multistatus>`, uid, data)
 }
 
 // ---- calendar_journal_list --------------------------------------------------
