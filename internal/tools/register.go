@@ -10,4 +10,5 @@ import (
 func Register(s *mcp.Server, cfg config.Config) {
 	RegisterCalendar(s, cfg)
 	RegisterContacts(s, cfg)
+	RegisterTodo(s, cfg)
 }
