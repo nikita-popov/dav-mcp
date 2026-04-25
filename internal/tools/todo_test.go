@@ -299,6 +299,8 @@ func TestTodoUpdate(t *testing.T) {
 	}
 }
 
+// TestTodoUpdate_NotFound verifies that updating a non-existent UID returns an
+// error (the tool surfaces it as a hard error via CallTool).
 func TestTodoUpdate_NotFound(t *testing.T) {
 	extra := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/xml")
@@ -309,16 +311,16 @@ func TestTodoUpdate_NotFound(t *testing.T) {
 	defer cleanup()
 
 	s := todoServer(t, cfg)
-	res, err := s.CallTool(context.Background(), "calendar_todo_update", map[string]any{
+	_, err := s.CallTool(context.Background(), "calendar_todo_update", map[string]any{
 		"uid":     "nonexistent-uid",
 		"summary": "Irrelevant",
 		"account": "todo-test",
 	})
-	if err != nil {
-		t.Fatalf("unexpected hard error: %v", err)
+	if err == nil {
+		t.Fatal("expected error for not-found uid")
 	}
-	if !toolIsError(res) {
-		t.Errorf("expected tool error for not-found uid, got: %s", toolText(t, res))
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("expected 'not found' in error, got: %v", err)
 	}
 }
 

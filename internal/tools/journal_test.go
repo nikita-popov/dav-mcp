@@ -240,21 +240,23 @@ func TestJournalCreate_WithDate(t *testing.T) {
 	}
 }
 
+// TestJournalCreate_InvalidDate verifies that an unparseable date value causes
+// a hard error from CallTool (the tool validates before touching the network).
 func TestJournalCreate_InvalidDate(t *testing.T) {
 	cfg, cleanup := connectJournal(t, nil)
 	defer cleanup()
 
 	s := journalServer(t, cfg)
-	res, err := s.CallTool(context.Background(), "calendar_journal_create", map[string]any{
+	_, err := s.CallTool(context.Background(), "calendar_journal_create", map[string]any{
 		"summary": "Bad date",
 		"date":    "not-a-date",
 		"account": "journal-test",
 	})
-	if err != nil {
-		t.Fatalf("unexpected hard error: %v", err)
+	if err == nil {
+		t.Fatal("expected error for invalid date")
 	}
-	if !toolIsError(res) {
-		t.Errorf("expected tool error for invalid date, got: %s", toolText(t, res))
+	if !strings.Contains(err.Error(), "invalid date") {
+		t.Errorf("expected 'invalid date' in error, got: %v", err)
 	}
 }
 
@@ -313,6 +315,8 @@ func TestJournalUpdate(t *testing.T) {
 	}
 }
 
+// TestJournalUpdate_NotFound verifies that updating a non-existent UID returns
+// a hard error from CallTool.
 func TestJournalUpdate_NotFound(t *testing.T) {
 	extra := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/xml")
@@ -323,16 +327,16 @@ func TestJournalUpdate_NotFound(t *testing.T) {
 	defer cleanup()
 
 	s := journalServer(t, cfg)
-	res, err := s.CallTool(context.Background(), "calendar_journal_update", map[string]any{
+	_, err := s.CallTool(context.Background(), "calendar_journal_update", map[string]any{
 		"uid":     "ghost-uid",
 		"summary": "Irrelevant",
 		"account": "journal-test",
 	})
-	if err != nil {
-		t.Fatalf("unexpected hard error: %v", err)
+	if err == nil {
+		t.Fatal("expected error for not-found uid")
 	}
-	if !toolIsError(res) {
-		t.Errorf("expected tool error for not-found uid, got: %s", toolText(t, res))
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("expected 'not found' in error, got: %v", err)
 	}
 }
 
