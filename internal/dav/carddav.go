@@ -80,8 +80,11 @@ func PutContactHref(ctx context.Context, c *Client, href, vcfData, etag string) 
 	return c.Put(ctx, href, "text/vcard; charset=utf-8", etag, []byte(vcfData))
 }
 
-// DeleteContact removes the .vcf resource identified by uid from abPath.
-func DeleteContact(ctx context.Context, c *Client, abPath, uid string) error {
+// DeleteContact removes the vCard resource at abPath/uid.vcf.
+// Pass the ETag obtained from QueryContactsFull for a conditional DELETE
+// (prevents deleting a resource that has been modified since it was read).
+// Pass an empty etag to skip the If-Match check.
+func DeleteContact(ctx context.Context, c *Client, abPath, uid, etag string) error {
 	path := abPath + uid + ".vcf"
-	return c.Delete(ctx, path, "")
+	return c.Delete(ctx, path, etag)
 }

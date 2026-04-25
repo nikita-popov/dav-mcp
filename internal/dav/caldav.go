@@ -121,8 +121,11 @@ func PutEventHref(ctx context.Context, c *Client, href, icsData, etag string) er
 	return c.Put(ctx, href, "text/calendar; charset=utf-8", etag, []byte(icsData))
 }
 
-// DeleteEvent removes the .ics resource identified by uid from calendarPath.
-func DeleteEvent(ctx context.Context, c *Client, calendarPath, uid string) error {
+// DeleteEvent removes the calendar resource at calendarPath/uid.ics.
+// Pass the ETag obtained from QueryEventByUID for a conditional DELETE
+// (prevents deleting a resource that has been modified since it was read).
+// Pass an empty etag to skip the If-Match check.
+func DeleteEvent(ctx context.Context, c *Client, calendarPath, uid, etag string) error {
 	path := calendarPath + uid + ".ics"
-	return c.Delete(ctx, path, "")
+	return c.Delete(ctx, path, etag)
 }
