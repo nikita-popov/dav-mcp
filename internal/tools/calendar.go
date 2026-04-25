@@ -14,9 +14,9 @@ import (
 
 func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 
-	// calendar_calendar_list
+	// calendar_list
 	s.AddTool(
-		"calendar_calendar_list",
+		"calendar_list",
 		"List all calendars across connected accounts. Call this first to discover available calendars and their paths before using calendar_event_list or calendar_event_create.",
 		mcp.InputSchema{
 			Type: "object",
@@ -145,7 +145,7 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 			Properties: map[string]mcp.Property{
 				"start":    {Type: "string", Description: "Range start, ISO 8601, e.g. 2026-04-01T00:00:00Z"},
 				"end":      {Type: "string", Description: "Range end, ISO 8601, e.g. 2026-04-30T23:59:59Z"},
-				"calendar": {Type: "string", Description: "Calendar path from calendar_calendar_list (optional, defaults to primary calendar of the account)"},
+				"calendar": {Type: "string", Description: "Calendar path from calendar_list (optional, defaults to primary calendar of the account)"},
 				"account":  {Type: "string", Description: "Account name (optional)"},
 			},
 			Required: []string{"start", "end"},
@@ -218,7 +218,7 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 				"end":         {Type: "string", Description: "End datetime, ISO 8601"},
 				"description": {Type: "string", Description: "Event description (optional)"},
 				"location":    {Type: "string", Description: "Location (optional)"},
-				"calendar":    {Type: "string", Description: "Calendar path from calendar_calendar_list (optional)"},
+				"calendar":    {Type: "string", Description: "Calendar path from calendar_list (optional)"},
 				"account":     {Type: "string", Description: "Account name (optional)"},
 			},
 			Required: []string{"summary", "start", "end"},
@@ -286,9 +286,9 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 		},
 	)
 
-	// calendar_event_create_recurring
+	// calendar_event_recurring_create
 	s.AddTool(
-		"calendar_event_create_recurring",
+		"calendar_event_recurring_create",
 		"Create a recurring calendar event with RRULE",
 		mcp.InputSchema{
 			Type: "object",
@@ -298,7 +298,7 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 				"end":         {Type: "string", Description: "First occurrence end, ISO 8601"},
 				"rrule":       {Type: "string", Description: "RFC 5545 RRULE, e.g. FREQ=WEEKLY;BYDAY=MO,WE,FR"},
 				"description": {Type: "string", Description: "Event description (optional)"},
-				"calendar":    {Type: "string", Description: "Calendar path from calendar_calendar_list (optional)"},
+				"calendar":    {Type: "string", Description: "Calendar path from calendar_list (optional)"},
 				"account":     {Type: "string", Description: "Account name (optional)"},
 			},
 			Required: []string{"summary", "start", "end", "rrule"},
