@@ -15,6 +15,14 @@ const foldedEvent = "BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nUID:fold@x\r\nSUMMARY:A 
 
 const recurringEvent = "BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nUID:rec@x\r\nSUMMARY:Standup\r\nDTSTART:20260501T090000Z\r\nDTEND:20260501T091500Z\r\nRRULE:FREQ=DAILY;BYDAY=MO,TU,WE,TH,FR\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
 
+// tzidEvent mirrors what Yandex Calendar actually sends: DTSTART with a
+// TZID parameter and a local (non-UTC) datetime value.
+const tzidEvent = "BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nUID:tz@x\r\nSUMMARY:TZ Meeting\r\nDTSTART;TZID=Asia/Yekaterinburg:20260504T143000\r\nDTEND;TZID=Asia/Yekaterinburg:20260504T150000\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
+
+// recurringTZIDEvent combines RRULE with TZID — the combination that was
+// silently broken: StartTZ was empty and Start was parsed as floating UTC.
+const recurringTZIDEvent = "BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nUID:rectز@x\r\nSUMMARY:Daily standup\r\nDTSTART;TZID=Europe/Moscow:20260501T100000\r\nDTEND;TZID=Europe/Moscow:20260501T101500\r\nRRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
+
 func TestParseEvents_Single(t *testing.T) {
 	evs := ParseEvents(singleEvent)
 	if len(evs) != 1 {
@@ -82,6 +90,56 @@ func TestParseEvents_Recurring(t *testing.T) {
 func TestParseEvents_Empty(t *testing.T) {
 	if evs := ParseEvents(""); len(evs) != 0 {
 		t.Errorf("expected 0, got %d", len(evs))
+	}
+}
+
+// TestParseEvents_TZID verifies that DTSTART;TZID=Asia/Yekaterinburg is
+// parsed as the correct UTC instant and that StartTZ/EndTZ are populated.
+func TestParseEvents_TZID(t *testing.T) {
+	evs := ParseEvents(tzidEvent)
+	if len(evs) != 1 {
+		t.Fatalf("expected 1, got %d", len(evs))
+	}
+	e := evs[0]
+
+	if e.StartTZ != "Asia/Yekaterinburg" {
+		t.Errorf("StartTZ=%q, want Asia/Yekaterinburg", e.StartTZ)
+	}
+	if e.EndTZ != "Asia/Yekaterinburg" {
+		t.Errorf("EndTZ=%q, want Asia/Yekaterinburg", e.EndTZ)
+	}
+
+	// Asia/Yekaterinburg is UTC+5; 14:30 local = 09:30 UTC.
+	wantStart := time.Date(2026, 5, 4, 9, 30, 0, 0, time.UTC)
+	if !e.Start.Equal(wantStart) {
+		t.Errorf("Start=%v, want %v (UTC)", e.Start, wantStart)
+	}
+	wantEnd := time.Date(2026, 5, 4, 10, 0, 0, 0, time.UTC)
+	if !e.End.Equal(wantEnd) {
+		t.Errorf("End=%v, want %v (UTC)", e.End, wantEnd)
+	}
+}
+
+// TestParseEvents_RecurringWithTZID verifies that an event combining RRULE
+// and TZID has both RRule populated and Start parsed in the correct timezone.
+func TestParseEvents_RecurringWithTZID(t *testing.T) {
+	evs := ParseEvents(recurringTZIDEvent)
+	if len(evs) != 1 {
+		t.Fatalf("expected 1, got %d", len(evs))
+	}
+	e := evs[0]
+
+	if e.RRule != "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR" {
+		t.Errorf("RRule=%q", e.RRule)
+	}
+	if e.StartTZ != "Europe/Moscow" {
+		t.Errorf("StartTZ=%q, want Europe/Moscow", e.StartTZ)
+	}
+
+	// Europe/Moscow is UTC+3; 10:00 local = 07:00 UTC.
+	wantStart := time.Date(2026, 5, 1, 7, 0, 0, 0, time.UTC)
+	if !e.Start.Equal(wantStart) {
+		t.Errorf("Start=%v, want %v (UTC)", e.Start, wantStart)
 	}
 }
 
