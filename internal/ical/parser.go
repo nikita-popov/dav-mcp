@@ -9,16 +9,17 @@ import (
 
 // ParsedEvent holds fields extracted from a VEVENT block.
 type ParsedEvent struct {
-	UID         string
-	Summary     string
-	Description string
-	Location    string
-	Start       time.Time
-	End         time.Time
-	StartTZ     string // raw TZID from DTSTART, empty for UTC/floating
-	EndTZ       string // raw TZID from DTEND, empty for UTC/floating
-	RRule       string
-	Sequence    int
+	UID          string
+	Summary      string
+	Description  string
+	Location     string
+	Start        time.Time
+	End          time.Time
+	StartTZ      string // raw TZID from DTSTART, empty for UTC/floating
+	EndTZ        string // raw TZID from DTEND, empty for UTC/floating
+	RRule        string
+	RecurrenceID string // set on expanded occurrences (server adds after <c:expand>)
+	Sequence     int
 }
 
 // ParsedTodo holds fields extracted from a VTODO block.
@@ -76,6 +77,8 @@ func ParseEvents(data string) []ParsedEvent {
 				cur.Location = unescape(value)
 			case "RRULE":
 				cur.RRule = value
+			case "RECURRENCE-ID":
+				cur.RecurrenceID = value
 			case "SEQUENCE":
 				if n, err := strconv.Atoi(value); err == nil {
 					cur.Sequence = n
@@ -277,4 +280,10 @@ func unescape(s string) string {
 	s = strings.ReplaceAll(s, `\;`, ";")
 	s = strings.ReplaceAll(s, `\\`, `\`)
 	return s
+}
+
+// IsRecurring reports whether the event is part of a recurring series.
+// True for master events (have RRULE) and expanded occurrences (have RECURRENCE-ID).
+func (e *ParsedEvent) IsRecurring() bool {
+	return e.RRule != "" || e.RecurrenceID != ""
 }

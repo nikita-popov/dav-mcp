@@ -180,7 +180,6 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 			var allEvents []ical.ParsedEvent
 
 			if accName != "" {
-				// Single account, explicit.
 				sess, err := session(ctx, cfg, accName)
 				if err != nil {
 					return nil, err
@@ -198,7 +197,6 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 				}
 				allEvents = append(allEvents, events...)
 			} else if calPath != "" {
-				// Explicit calendar path but no account — try all sessions.
 				for _, acc := range cfg.Accounts {
 					sess, err := session(ctx, cfg, acc.Name)
 					if err != nil {
@@ -211,7 +209,6 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 					allEvents = append(allEvents, events...)
 				}
 			} else {
-				// No account, no calendar — query every calendar of every account.
 				for _, acc := range cfg.Accounts {
 					sess, err := session(ctx, cfg, acc.Name)
 					if err != nil {
@@ -606,7 +603,7 @@ func formatEvents(events []ical.ParsedEvent, start, end time.Time) string {
 			}
 		}
 		rec := ""
-		if ev.RRule != "" {
+		if ev.IsRecurring() {
 			rec = " [rec]"
 		}
 		fmt.Fprintf(&b, "%s–%s%s %s  uid:%s\n",
