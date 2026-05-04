@@ -139,14 +139,14 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 	// calendar_event_list
 	s.AddTool(
 		"calendar_event_list",
-		"List calendar events in a time range. Returns one compact line per event. Use calendar_event_get for full details of a specific event.",
+		"List calendar events in a time range across all accounts. Returns one compact line per event. Use calendar_event_get for full details of a specific event.",
 		mcp.InputSchema{
 			Type: "object",
 			Properties: map[string]mcp.Property{
 				"start":    {Type: "string", Description: "Range start, ISO 8601, e.g. 2026-04-01T00:00:00Z"},
 				"end":      {Type: "string", Description: "Range end, ISO 8601, e.g. 2026-04-30T23:59:59Z"},
-				"calendar": {Type: "string", Description: "Calendar path from calendar_list (optional, defaults to primary calendar of the account)"},
-				"account":  {Type: "string", Description: "Account name (optional)"},
+				"calendar": {Type: "string", Description: "Calendar path from calendar_list (optional; queries all calendars of all accounts if omitted)"},
+				"account":  {Type: "string", Description: "Account name (optional; queries all accounts if omitted)"},
 			},
 			Required: []string{"start", "end"},
 		},
@@ -155,11 +155,6 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 				Required: []string{"start", "end"},
 				Optional: []string{"calendar", "account"},
 			}, args); err != nil {
-				return nil, err
-			}
-
-			sess, err := session(ctx, cfg, strArg(args, "account"))
-			if err != nil {
 				return nil, err
 			}
 
@@ -175,26 +170,63 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 				return nil, fmt.Errorf("invalid end: %w", err)
 			}
 
-			calPath, _ := args["calendar"].(string)
-			if calPath == "" {
-				if len(sess.Calendars) == 0 {
-					return nil, fmt.Errorf("no calendars found in session")
-				}
-				calPath = sess.Calendars[0].Href
-			}
+			accName := strArg(args, "account")
+			calPath := strArg(args, "calendar")
 
 			const icalFmt = "20060102T150405Z"
-			blobs, err := dav.QueryEvents(ctx, sess.Client, calPath,
-				startT.UTC().Format(icalFmt),
-				endT.UTC().Format(icalFmt),
-			)
-			if err != nil {
-				return nil, err
-			}
+			start := startT.UTC().Format(icalFmt)
+			end := endT.UTC().Format(icalFmt)
 
 			var allEvents []ical.ParsedEvent
-			for _, blob := range blobs {
-				allEvents = append(allEvents, ical.ParseEvents(blob)...)
+
+			if accName != "" {
+				// Single account, explicit.
+				sess, err := session(ctx, cfg, accName)
+				if err != nil {
+					return nil, err
+				}
+				path := calPath
+				if path == "" {
+					if len(sess.Calendars) == 0 {
+						return nil, fmt.Errorf("no calendars found in account %q", accName)
+					}
+					path = sess.Calendars[0].Href
+				}
+				events, err := queryCalendarEvents(ctx, sess, path, start, end)
+				if err != nil {
+					return nil, err
+				}
+				allEvents = append(allEvents, events...)
+			} else if calPath != "" {
+				// Explicit calendar path but no account — try all sessions.
+				for _, acc := range cfg.Accounts {
+					sess, err := session(ctx, cfg, acc.Name)
+					if err != nil {
+						continue
+					}
+					events, err := queryCalendarEvents(ctx, sess, calPath, start, end)
+					if err != nil {
+						continue
+					}
+					allEvents = append(allEvents, events...)
+				}
+			} else {
+				// No account, no calendar — query every calendar of every account.
+				for _, acc := range cfg.Accounts {
+					sess, err := session(ctx, cfg, acc.Name)
+					if err != nil {
+						mcp.Debugf("calendar_event_list: skip account=%q: %v", acc.Name, err)
+						continue
+					}
+					for _, cal := range sess.Calendars {
+						events, err := queryCalendarEvents(ctx, sess, cal.Href, start, end)
+						if err != nil {
+							mcp.Debugf("calendar_event_list: skip calendar=%q: %v", cal.Href, err)
+							continue
+						}
+						allEvents = append(allEvents, events...)
+					}
+				}
 			}
 
 			return mcp.ToolResult{
@@ -500,6 +532,19 @@ type eventRef struct {
 	calendarHref string
 }
 
+// queryCalendarEvents fetches and parses events from a single calendar collection.
+func queryCalendarEvents(ctx context.Context, sess *dav.Session, calPath, start, end string) ([]ical.ParsedEvent, error) {
+	blobs, err := dav.QueryEvents(ctx, sess.Client, calPath, start, end)
+	if err != nil {
+		return nil, err
+	}
+	var events []ical.ParsedEvent
+	for _, blob := range blobs {
+		events = append(events, ical.ParseEvents(blob)...)
+	}
+	return events, nil
+}
+
 func findEventByUID(ctx context.Context, sess *dav.Session, uid, calendarHref string) (*eventRef, error) {
 	calendars := sess.Calendars
 	if calendarHref != "" {
@@ -543,8 +588,6 @@ func formatCalendars(accName string, sess *dav.Session) string {
 
 // formatEvents renders a compact one-line-per-event list.
 // Format: MM-DD HH:MMtz–HH:MM [rec] Summary  uid:<uid>
-// Description and Location are intentionally omitted to keep tokens low;
-// use calendar_event_get for full details.
 func formatEvents(events []ical.ParsedEvent, start, end time.Time) string {
 	if len(events) == 0 {
 		return fmt.Sprintf("No events found between %s and %s.",
@@ -554,7 +597,6 @@ func formatEvents(events []ical.ParsedEvent, start, end time.Time) string {
 	fmt.Fprintf(&b, "%d event(s) %s – %s:\n",
 		len(events), start.Format("2006-01-02"), end.Format("2006-01-02"))
 	for _, ev := range events {
-		// Format times: prefer local zone when TZID present, else UTC.
 		startFmt := ev.Start.Format("01-02 15:04Z07:00")
 		endFmt := ev.End.Format("15:04Z07:00")
 		if ev.StartTZ != "" {
