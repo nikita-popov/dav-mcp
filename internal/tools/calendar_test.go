@@ -19,31 +19,7 @@ import (
 // sub-paths (uid.ics etc.) via the default switch arm.
 func minimalCalDAVServer(t *testing.T, extraHandler http.HandlerFunc) *httptest.Server {
 	t.Helper()
-
-	const principalResp = `<?xml version="1.0"?>
-<multistatus xmlns="DAV:">
-  <response><href>/</href>
-    <propstat><prop><current-user-principal><href>/principals/user/</href></current-user-principal></prop>
-    <status>HTTP/1.1 200 OK</status></propstat>
-  </response>
-</multistatus>`
-
-	const calHomeResp = `<?xml version="1.0"?>
-<multistatus xmlns="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
-  <response><href>/principals/user/</href>
-    <propstat><prop><c:calendar-home-set><href>/calendars/user/</href></c:calendar-home-set></prop>
-    <status>HTTP/1.1 200 OK</status></propstat>
-  </response>
-</multistatus>`
-
-	const collectionsResp = `<?xml version="1.0"?>
-<multistatus xmlns="DAV:">
-  <response><href>/calendars/user/personal/</href>
-    <propstat><prop><displayname>Personal</displayname><resourcetype><collection/></resourcetype></prop>
-    <status>HTTP/1.1 200 OK</status></propstat>
-  </response>
-</multistatus>`
-
+	collections := testCollectionsBody("")
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/xml")
 
@@ -55,13 +31,13 @@ func minimalCalDAVServer(t *testing.T, extraHandler http.HandlerFunc) *httptest.
 		switch {
 		case strings.HasPrefix(r.URL.Path, "/calendars"):
 			w.WriteHeader(207)
-			w.Write([]byte(collectionsResp))
+			w.Write([]byte(collections))
 		case strings.HasPrefix(r.URL.Path, "/principals"):
 			w.WriteHeader(207)
-			w.Write([]byte(calHomeResp))
+			w.Write([]byte(testCalHomeBody))
 		default:
 			w.WriteHeader(207)
-			w.Write([]byte(principalResp))
+			w.Write([]byte(testPrincipalBody))
 		}
 	}))
 }
