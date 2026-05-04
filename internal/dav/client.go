@@ -212,9 +212,9 @@ type ResourceType struct {
 	Addressbook *struct{} `xml:"addressbook"`
 }
 
-func (r ResourceType) IsCollection() bool {
-	return r.Collection != nil
-}
+func (r ResourceType) IsCollection() bool  { return r.Collection != nil }
+func (r ResourceType) IsCalendar() bool    { return r.Calendar != nil }
+func (r ResourceType) IsAddressbook() bool { return r.Addressbook != nil }
 
 // SupportedCalendarComponentSet holds the list of supported component types
 // returned by the server for a calendar collection.
