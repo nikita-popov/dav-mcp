@@ -62,7 +62,7 @@ func DiscoverCalendarHome(ctx context.Context, c *Client, principal string) (str
 	}
 	for _, r := range ms.Responses {
 		for _, ps := range r.Propstat {
-			if h := ps.Prop.CalendarHomeSet.Href; h != "" {
+			if h := ps.Prop.GetCalendarHomeSet(); h != "" {
 				return h, nil
 			}
 		}
@@ -82,7 +82,7 @@ func DiscoverAddressbookHome(ctx context.Context, c *Client, principal string) (
 	}
 	for _, r := range ms.Responses {
 		for _, ps := range r.Propstat {
-			if h := ps.Prop.AddressbookHomeSet.Href; h != "" {
+			if h := ps.Prop.GetAddressbookHomeSet(); h != "" {
 				return h, nil
 			}
 		}

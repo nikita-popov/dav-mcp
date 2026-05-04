@@ -62,8 +62,8 @@ func QueryEvents(ctx context.Context, c *Client, calendarPath, start, end string
 	var out []string
 	for _, r := range ms.Responses {
 		for _, ps := range r.Propstat {
-			if ps.Prop.CalendarData != "" {
-				out = append(out, ps.Prop.CalendarData)
+			if data := ps.Prop.GetCalendarData(); data != "" {
+				out = append(out, data)
 			}
 		}
 	}
@@ -90,10 +90,11 @@ func QueryEventByUID(ctx context.Context, c *Client, calendarPath, uid string) (
 	}
 	for _, r := range ms.Responses {
 		for _, ps := range r.Propstat {
-			if ps.Prop.CalendarData == "" {
+			data := ps.Prop.GetCalendarData()
+			if data == "" {
 				continue
 			}
-			for _, ev := range ical.ParseEvents(ps.Prop.CalendarData) {
+			for _, ev := range ical.ParseEvents(data) {
 				if ev.UID == uid {
 					return &EventRecord{
 						Event: ev,
