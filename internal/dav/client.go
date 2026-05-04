@@ -193,28 +193,43 @@ type Propstat struct {
 type Prop struct {
 	DisplayName                   string                        `xml:"displayname,omitempty"`
 	ETag                          string                        `xml:"getetag,omitempty"`
-	CalendarData                  string                        `xml:"calendar-data,omitempty"`
-	AddressData                   string                        `xml:"address-data,omitempty"`
+	CalendarData                  string                        `xml:"urn:ietf:params:xml:ns:caldav calendar-data,omitempty"`
+	AddressData                   string                        `xml:"urn:ietf:params:xml:ns:carddav address-data,omitempty"`
 	ResourceType                  ResourceType                  `xml:"resourcetype"`
 	CurrentUserPrincipal          HrefWrap                      `xml:"current-user-principal"`
-	CalendarHomeSet               HrefWrap                      `xml:"calendar-home-set"`
-	AddressbookHomeSet            HrefWrap                      `xml:"addressbook-home-set"`
-	SupportedCalendarComponentSet SupportedCalendarComponentSet `xml:"supported-calendar-component-set"`
+	CalendarHomeSet               HrefWrap                      `xml:"urn:ietf:params:xml:ns:caldav calendar-home-set"`
+	AddressbookHomeSet            HrefWrap                      `xml:"urn:ietf:params:xml:ns:carddav addressbook-home-set"`
+	SupportedCalendarComponentSet SupportedCalendarComponentSet `xml:"urn:ietf:params:xml:ns:caldav supported-calendar-component-set"`
 }
 
 type HrefWrap struct {
 	Href string `xml:"href"`
 }
 
+// ResourceType holds the WebDAV resourcetype property.
+// Elements inside <resourcetype> may come with or without a namespace prefix;
+// we register both the bare name and the namespaced form so that strict
+// servers (e.g. Yandex) are handled correctly.
 type ResourceType struct {
-	Collection  *struct{} `xml:"collection"`
-	Calendar    *struct{} `xml:"calendar"`
-	Addressbook *struct{} `xml:"addressbook"`
+	Collection  *struct{} `xml:"DAV: collection"`
+	Calendar    *struct{} `xml:"urn:ietf:params:xml:ns:caldav calendar"`
+	Addressbook *struct{} `xml:"urn:ietf:params:xml:ns:carddav addressbook"`
+
+	// Fallbacks for servers that omit the namespace on these elements.
+	CollectionPlain  *struct{} `xml:"collection"`
+	CalendarPlain    *struct{} `xml:"calendar"`
+	AddressbookPlain *struct{} `xml:"addressbook"`
 }
 
-func (r ResourceType) IsCollection() bool  { return r.Collection != nil }
-func (r ResourceType) IsCalendar() bool    { return r.Calendar != nil }
-func (r ResourceType) IsAddressbook() bool { return r.Addressbook != nil }
+func (r ResourceType) IsCollection() bool {
+	return r.Collection != nil || r.CollectionPlain != nil
+}
+func (r ResourceType) IsCalendar() bool {
+	return r.Calendar != nil || r.CalendarPlain != nil
+}
+func (r ResourceType) IsAddressbook() bool {
+	return r.Addressbook != nil || r.AddressbookPlain != nil
+}
 
 // SupportedCalendarComponentSet holds the list of supported component types
 // returned by the server for a calendar collection.
