@@ -11,11 +11,16 @@ import (
 
 // timeRangeReportTmpl is a CalDAV calendar-query REPORT that fetches all
 // VEVENT components in the given time range.
+// <c:expand> instructs the server to expand recurring events into individual
+// occurrences so each returned DTSTART reflects the actual occurrence date,
+// not the master event DTSTART (RFC 4791 §7.8.5).
 var timeRangeReportTmpl = template.Must(template.New("tr").Parse(`<?xml version="1.0" encoding="UTF-8"?>
 <c:calendar-query xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
   <d:prop>
     <d:getetag/>
-    <c:calendar-data/>
+    <c:calendar-data>
+      <c:expand start="{{.Start}}" end="{{.End}}"/>
+    </c:calendar-data>
   </d:prop>
   <c:filter>
     <c:comp-filter name="VCALENDAR">
