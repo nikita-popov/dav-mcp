@@ -90,8 +90,9 @@ func DiscoverAddressbookHome(ctx context.Context, c *Client, principal string) (
 	return "", ErrNotFound
 }
 
-// DiscoverCollections lists child collections under path (depth:1).
-// For each calendar collection it also fetches supported-calendar-component-set.
+// DiscoverCollections lists CalDAV calendar collections under path (depth:1).
+// Only resources with resourcetype:calendar are included; addressbook and
+// other non-calendar collections are silently skipped.
 func DiscoverCollections(ctx context.Context, c *Client, path string) ([]Collection, error) {
 	body := []byte(`<?xml version="1.0" encoding="UTF-8"?>
 <propfind xmlns="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
@@ -111,7 +112,11 @@ func DiscoverCollections(ctx context.Context, c *Client, path string) ([]Collect
 			continue
 		}
 		for _, ps := range r.Propstat {
-			if !ps.Prop.ResourceType.IsCollection() {
+			// Accept only proper CalDAV calendar collections.
+			// Addressbook collections (CardDAV) share the same home on some
+			// servers (e.g. Radicale) and must be excluded here to avoid
+			// sending CalDAV REPORT requests to them.
+			if !ps.Prop.ResourceType.IsCalendar() {
 				continue
 			}
 			out = append(out, Collection{
