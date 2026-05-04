@@ -98,13 +98,16 @@ func (c *Client) Propfind(
 	return &ms, nil
 }
 
+// Report sends a CalDAV REPORT request.
+// RFC 4791 §7.8 does not restrict calendar-query to Depth:1;
+// using "infinity" ensures servers like Yandex return all matching objects.
 func (c *Client) Report(
 	ctx context.Context,
 	path string,
 	body []byte,
 ) (*MultiStatus, error) {
 	headers := map[string]string{
-		"Depth":        "1",
+		"Depth":        "infinity",
 		"Content-Type": "application/xml",
 	}
 	resp, err := c.do(ctx, "REPORT", path, headers, bytes.NewReader(body))
@@ -190,16 +193,68 @@ type Propstat struct {
 	Prop   Prop   `xml:"prop"`
 }
 
+// Prop holds WebDAV/CalDAV/CardDAV properties from a PROPFIND or REPORT response.
+// Each CalDAV/CardDAV field has two struct tags: the namespaced form (used by
+// strict servers such as Yandex and Nextcloud) and a plain fallback (used by
+// servers that omit the namespace prefix in the response body).
 type Prop struct {
-	DisplayName                   string                        `xml:"displayname,omitempty"`
-	ETag                          string                        `xml:"getetag,omitempty"`
-	CalendarData                  string                        `xml:"urn:ietf:params:xml:ns:caldav calendar-data,omitempty"`
-	AddressData                   string                        `xml:"urn:ietf:params:xml:ns:carddav address-data,omitempty"`
-	ResourceType                  ResourceType                  `xml:"resourcetype"`
-	CurrentUserPrincipal          HrefWrap                      `xml:"current-user-principal"`
-	CalendarHomeSet               HrefWrap                      `xml:"urn:ietf:params:xml:ns:caldav calendar-home-set"`
-	AddressbookHomeSet            HrefWrap                      `xml:"urn:ietf:params:xml:ns:carddav addressbook-home-set"`
+	DisplayName string `xml:"displayname,omitempty"`
+	ETag        string `xml:"getetag,omitempty"`
+
+	// CalDAV calendar-data (REPORT responses)
+	CalendarData      string `xml:"urn:ietf:params:xml:ns:caldav calendar-data,omitempty"`
+	CalendarDataPlain string `xml:"calendar-data,omitempty"`
+
+	// CardDAV address-data (REPORT responses)
+	AddressData      string `xml:"urn:ietf:params:xml:ns:carddav address-data,omitempty"`
+	AddressDataPlain string `xml:"address-data,omitempty"`
+
+	ResourceType ResourceType `xml:"resourcetype"`
+
+	CurrentUserPrincipal HrefWrap `xml:"current-user-principal"`
+
+	// CalDAV calendar-home-set
+	CalendarHomeSet      HrefWrap `xml:"urn:ietf:params:xml:ns:caldav calendar-home-set"`
+	CalendarHomeSetPlain HrefWrap `xml:"calendar-home-set"`
+
+	// CardDAV addressbook-home-set
+	AddressbookHomeSet      HrefWrap `xml:"urn:ietf:params:xml:ns:carddav addressbook-home-set"`
+	AddressbookHomeSetPlain HrefWrap `xml:"addressbook-home-set"`
+
 	SupportedCalendarComponentSet SupportedCalendarComponentSet `xml:"urn:ietf:params:xml:ns:caldav supported-calendar-component-set"`
+}
+
+// GetCalendarData returns calendar-data regardless of whether the server
+// included the CalDAV namespace on the element.
+func (p Prop) GetCalendarData() string {
+	if p.CalendarData != "" {
+		return p.CalendarData
+	}
+	return p.CalendarDataPlain
+}
+
+// GetAddressData returns address-data regardless of namespace.
+func (p Prop) GetAddressData() string {
+	if p.AddressData != "" {
+		return p.AddressData
+	}
+	return p.AddressDataPlain
+}
+
+// GetCalendarHomeSet returns the calendar-home-set href regardless of namespace.
+func (p Prop) GetCalendarHomeSet() string {
+	if p.CalendarHomeSet.Href != "" {
+		return p.CalendarHomeSet.Href
+	}
+	return p.CalendarHomeSetPlain.Href
+}
+
+// GetAddressbookHomeSet returns the addressbook-home-set href regardless of namespace.
+func (p Prop) GetAddressbookHomeSet() string {
+	if p.AddressbookHomeSet.Href != "" {
+		return p.AddressbookHomeSet.Href
+	}
+	return p.AddressbookHomeSetPlain.Href
 }
 
 type HrefWrap struct {
