@@ -139,7 +139,7 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 	// calendar_event_list
 	s.AddTool(
 		"calendar_event_list",
-		"List calendar events in a time range.",
+		"List calendar events in a time range. Returns one compact line per event. Use calendar_event_get for full details of a specific event.",
 		mcp.InputSchema{
 			Type: "object",
 			Properties: map[string]mcp.Property{
@@ -541,40 +541,34 @@ func formatCalendars(accName string, sess *dav.Session) string {
 	return b.String()
 }
 
+// formatEvents renders a compact one-line-per-event list.
+// Format: MM-DD HH:MMtz–HH:MM [rec] Summary  uid:<uid>
+// Description and Location are intentionally omitted to keep tokens low;
+// use calendar_event_get for full details.
 func formatEvents(events []ical.ParsedEvent, start, end time.Time) string {
 	if len(events) == 0 {
-		return fmt.Sprintf("No events found between %s and %s.", start.Format(time.RFC3339), end.Format(time.RFC3339))
+		return fmt.Sprintf("No events found between %s and %s.",
+			start.Format("2006-01-02"), end.Format("2006-01-02"))
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "%d event(s) between %s and %s:\n\n",
-		len(events), start.Format(time.RFC3339), end.Format(time.RFC3339))
+	fmt.Fprintf(&b, "%d event(s) %s – %s:\n",
+		len(events), start.Format("2006-01-02"), end.Format("2006-01-02"))
 	for _, ev := range events {
-		if ev.RRule != "" {
-			fmt.Fprintf(&b, "UID: %s [recurring]\n", ev.UID)
-		} else {
-			fmt.Fprintf(&b, "UID: %s\n", ev.UID)
-		}
-		fmt.Fprintf(&b, "Summary: %s\n", ev.Summary)
+		// Format times: prefer local zone when TZID present, else UTC.
+		startFmt := ev.Start.Format("01-02 15:04Z07:00")
+		endFmt := ev.End.Format("15:04Z07:00")
 		if ev.StartTZ != "" {
-			fmt.Fprintf(&b, "Start: %s (%s)\n", ev.Start.Format(time.RFC3339), ev.StartTZ)
-		} else {
-			fmt.Fprintf(&b, "Start: %s\n", ev.Start.Format(time.RFC3339))
+			if loc, err := time.LoadLocation(ev.StartTZ); err == nil {
+				startFmt = ev.Start.In(loc).Format("01-02 15:04Z07:00")
+				endFmt = ev.End.In(loc).Format("15:04Z07:00")
+			}
 		}
-		if ev.EndTZ != "" {
-			fmt.Fprintf(&b, "End: %s (%s)\n", ev.End.Format(time.RFC3339), ev.EndTZ)
-		} else {
-			fmt.Fprintf(&b, "End: %s\n", ev.End.Format(time.RFC3339))
-		}
+		rec := ""
 		if ev.RRule != "" {
-			fmt.Fprintf(&b, "RRule: %s\n", ev.RRule)
+			rec = " [rec]"
 		}
-		if ev.Description != "" {
-			fmt.Fprintf(&b, "Description: %s\n", ev.Description)
-		}
-		if ev.Location != "" {
-			fmt.Fprintf(&b, "Location: %s\n", ev.Location)
-		}
-		b.WriteString("\n")
+		fmt.Fprintf(&b, "%s–%s%s %s  uid:%s\n",
+			startFmt, endFmt, rec, ev.Summary, ev.UID)
 	}
 	return b.String()
 }
