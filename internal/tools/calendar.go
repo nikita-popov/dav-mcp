@@ -405,7 +405,6 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 				return nil, err
 			}
 
-			// Convert ParsedEvent to Event, then patch only supplied fields.
 			ev := parsedToEvent(ref.rec.Event)
 			ev.Sequence++
 			if v := strArg(args, "summary"); v != "" {
@@ -496,14 +495,11 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 
 // ---- helpers ----------------------------------------------------------------
 
-// eventRef pairs an EventRecord with the calendar collection href it came from.
 type eventRef struct {
 	rec          *dav.EventRecord
 	calendarHref string
 }
 
-// findEventByUID searches calendars in the session for an event with the given UID.
-// If calendarHref is non-empty, only that collection is searched.
 func findEventByUID(ctx context.Context, sess *dav.Session, uid, calendarHref string) (*eventRef, error) {
 	calendars := sess.Calendars
 	if calendarHref != "" {
@@ -512,7 +508,6 @@ func findEventByUID(ctx context.Context, sess *dav.Session, uid, calendarHref st
 	for _, cal := range calendars {
 		rec, err := dav.QueryEventByUID(ctx, sess.Client, cal.Href, uid)
 		if err != nil {
-			// not found in this calendar — keep searching
 			continue
 		}
 		return &eventRef{rec: rec, calendarHref: cal.Href}, nil
@@ -520,7 +515,6 @@ func findEventByUID(ctx context.Context, sess *dav.Session, uid, calendarHref st
 	return nil, fmt.Errorf("event UID=%q not found", uid)
 }
 
-// parsedToEvent converts a ParsedEvent (read from server) to an Event (for building iCal).
 func parsedToEvent(p ical.ParsedEvent) ical.Event {
 	return ical.Event{
 		UID:         p.UID,
@@ -555,10 +549,25 @@ func formatEvents(events []ical.ParsedEvent, start, end time.Time) string {
 	fmt.Fprintf(&b, "%d event(s) between %s and %s:\n\n",
 		len(events), start.Format(time.RFC3339), end.Format(time.RFC3339))
 	for _, ev := range events {
-		fmt.Fprintf(&b, "UID: %s\n", ev.UID)
+		if ev.RRule != "" {
+			fmt.Fprintf(&b, "UID: %s [recurring]\n", ev.UID)
+		} else {
+			fmt.Fprintf(&b, "UID: %s\n", ev.UID)
+		}
 		fmt.Fprintf(&b, "Summary: %s\n", ev.Summary)
-		fmt.Fprintf(&b, "Start: %s\n", ev.Start.Format(time.RFC3339))
-		fmt.Fprintf(&b, "End: %s\n", ev.End.Format(time.RFC3339))
+		if ev.StartTZ != "" {
+			fmt.Fprintf(&b, "Start: %s (%s)\n", ev.Start.Format(time.RFC3339), ev.StartTZ)
+		} else {
+			fmt.Fprintf(&b, "Start: %s\n", ev.Start.Format(time.RFC3339))
+		}
+		if ev.EndTZ != "" {
+			fmt.Fprintf(&b, "End: %s (%s)\n", ev.End.Format(time.RFC3339), ev.EndTZ)
+		} else {
+			fmt.Fprintf(&b, "End: %s\n", ev.End.Format(time.RFC3339))
+		}
+		if ev.RRule != "" {
+			fmt.Fprintf(&b, "RRule: %s\n", ev.RRule)
+		}
 		if ev.Description != "" {
 			fmt.Fprintf(&b, "Description: %s\n", ev.Description)
 		}

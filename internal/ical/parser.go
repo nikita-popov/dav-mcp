@@ -15,6 +15,8 @@ type ParsedEvent struct {
 	Location    string
 	Start       time.Time
 	End         time.Time
+	StartTZ     string // raw TZID from DTSTART, empty for UTC/floating
+	EndTZ       string // raw TZID from DTEND, empty for UTC/floating
 	RRule       string
 	Sequence    int
 }
@@ -59,7 +61,7 @@ func ParseEvents(data string) []ParsedEvent {
 			if cur == nil {
 				continue
 			}
-			name, value, ok := cutProp(line)
+			name, params, value, ok := cutPropFull(line)
 			if !ok {
 				continue
 			}
@@ -78,10 +80,14 @@ func ParseEvents(data string) []ParsedEvent {
 				if n, err := strconv.Atoi(value); err == nil {
 					cur.Sequence = n
 				}
-			case "DTSTART", "DTSTART;TZID", "DTSTART;VALUE=DATE":
-				cur.Start = parseTime(name, value)
-			case "DTEND", "DTEND;TZID", "DTEND;VALUE=DATE":
-				cur.End = parseTime(name, value)
+			case "DTSTART":
+				tzid := extractTZID(params)
+				cur.StartTZ = tzid
+				cur.Start = parseTimeWithTZ(value, tzid)
+			case "DTEND":
+				tzid := extractTZID(params)
+				cur.EndTZ = tzid
+				cur.End = parseTimeWithTZ(value, tzid)
 			}
 		}
 	}
@@ -108,7 +114,7 @@ func ParseTodos(data string) []ParsedTodo {
 			if cur == nil {
 				continue
 			}
-			name, value, ok := cutProp(line)
+			name, params, value, ok := cutPropFull(line)
 			if !ok {
 				continue
 			}
@@ -119,8 +125,8 @@ func ParseTodos(data string) []ParsedTodo {
 				cur.Summary = unescape(value)
 			case "DESCRIPTION":
 				cur.Description = unescape(value)
-			case "DUE", "DUE;TZID", "DUE;VALUE=DATE":
-				cur.Due = parseTime(name, value)
+			case "DUE":
+				cur.Due = parseTimeWithTZ(value, extractTZID(params))
 			case "PRIORITY":
 				if n, err := strconv.Atoi(value); err == nil {
 					cur.Priority = n
@@ -153,7 +159,7 @@ func ParseJournals(data string) []ParsedJournal {
 			if cur == nil {
 				continue
 			}
-			name, value, ok := cutProp(line)
+			name, params, value, ok := cutPropFull(line)
 			if !ok {
 				continue
 			}
@@ -164,8 +170,8 @@ func ParseJournals(data string) []ParsedJournal {
 				cur.Summary = unescape(value)
 			case "DESCRIPTION":
 				cur.Description = unescape(value)
-			case "DTSTART", "DTSTART;TZID", "DTSTART;VALUE=DATE":
-				cur.Date = parseTime(name, value)
+			case "DTSTART":
+				cur.Date = parseTimeWithTZ(value, extractTZID(params))
 			case "STATUS":
 				cur.Status = value
 			}
@@ -181,45 +187,86 @@ func unfold(s string) string {
 	return s
 }
 
-// cutProp splits "NAME;params:value" into ("NAME", "value").
-// Params (e.g. TZID=...) are stripped from the name part for matching.
-func cutProp(line string) (name, value string, ok bool) {
+// cutPropFull splits "NAME;param1=v1;param2=v2:value" into
+// (name, params-string, value). Returns ok=false if no colon found.
+func cutPropFull(line string) (name, params, value string, ok bool) {
 	colon := strings.IndexByte(line, ':')
 	if colon < 0 {
 		return
 	}
 	namepart := line[:colon]
 	value = line[colon+1:]
-	// strip param: "DTSTART;TZID=America/New_York" → "DTSTART"
-	// but keep "DTSTART;VALUE=DATE" as-is for parseTime to detect all-day
 	if semi := strings.IndexByte(namepart, ';'); semi >= 0 {
-		base := namepart[:semi]
-		param := namepart[semi+1:]
-		if strings.HasPrefix(param, "VALUE=DATE") {
-			name = base + ";VALUE=DATE"
-		} else {
-			name = base
-		}
+		name = namepart[:semi]
+		params = namepart[semi+1:]
 	} else {
 		name = namepart
 	}
-	return name, value, true
+	return name, params, value, true
 }
 
-// parseTime parses DTSTART / DTEND / DUE values.
-func parseTime(prop, value string) time.Time {
-	if strings.HasSuffix(prop, "VALUE=DATE") {
+// cutProp is the legacy helper kept for callers that don't need params.
+// Deprecated: prefer cutPropFull.
+func cutProp(line string) (name, value string, ok bool) {
+	n, _, v, o := cutPropFull(line)
+	return n, v, o
+}
+
+// extractTZID returns the TZID value from a params string like
+// "TZID=Asia/Yekaterinburg" or "TZID=Europe/Moscow;VALUE=DATE-TIME".
+// Returns empty string if not present.
+func extractTZID(params string) string {
+	for _, p := range strings.Split(params, ";") {
+		if strings.HasPrefix(p, "TZID=") {
+			return p[5:]
+		}
+	}
+	return ""
+}
+
+// parseTimeWithTZ parses a DTSTART/DTEND value.
+// tzid is the raw TZID parameter value (may be empty).
+// For UTC values (ending in Z) the timezone is always UTC.
+// For floating values (no Z, no tzid) UTC is assumed.
+// For localised values the Go time package is used to load the named location;
+// if the location is unknown the value is parsed as floating UTC.
+func parseTimeWithTZ(value, tzid string) time.Time {
+	// All-day date: no time component
+	if len(value) == 8 {
 		t, _ := time.Parse("20060102", value)
 		return t
 	}
-	// UTC: ends with Z
+	// UTC explicit
 	if strings.HasSuffix(value, "Z") {
 		t, _ := time.Parse("20060102T150405Z", value)
 		return t
 	}
-	// floating (no Z, no TZID) — parse as UTC
+	// Localised with TZID
+	if tzid != "" {
+		if loc, err := time.LoadLocation(tzid); err == nil {
+			t, err := time.ParseInLocation("20060102T150405", value, loc)
+			if err == nil {
+				return t
+			}
+		}
+	}
+	// Floating: treat as UTC
 	t, _ := time.Parse("20060102T150405", value)
 	return t
+}
+
+// parseTime is the legacy single-arg wrapper.
+func parseTime(prop, value string) time.Time {
+	var tzid string
+	if strings.Contains(prop, "TZID=") {
+		if i := strings.Index(prop, "TZID="); i >= 0 {
+			tzid = prop[i+5:]
+			if j := strings.IndexByte(tzid, ';'); j >= 0 {
+				tzid = tzid[:j]
+			}
+		}
+	}
+	return parseTimeWithTZ(value, tzid)
 }
 
 // unescape reverses RFC 5545 §3.3.11 TEXT escaping.
