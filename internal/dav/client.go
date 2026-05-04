@@ -110,6 +110,7 @@ func (c *Client) Report(
 		"Depth":        "infinity",
 		"Content-Type": "application/xml",
 	}
+	mcp.Debugf("REPORT request body:\n%s", body)
 	resp, err := c.do(ctx, "REPORT", path, headers, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
@@ -118,8 +119,17 @@ func (c *Client) Report(
 	if resp.StatusCode != 207 {
 		return nil, mapHTTPError(resp.StatusCode)
 	}
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if len(raw) > 4096 {
+		mcp.Debugf("REPORT response (truncated 4KB of %d):\n%s", len(raw), raw[:4096])
+	} else {
+		mcp.Debugf("REPORT response (%d bytes):\n%s", len(raw), raw)
+	}
 	var ms MultiStatus
-	if err := xml.NewDecoder(resp.Body).Decode(&ms); err != nil {
+	if err := xml.NewDecoder(bytes.NewReader(raw)).Decode(&ms); err != nil {
 		return nil, err
 	}
 	return &ms, nil
