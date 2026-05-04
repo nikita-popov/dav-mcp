@@ -226,6 +226,10 @@ func RegisterCalendar(s *mcp.Server, cfg config.Config) {
 				}
 			}
 
+			// Client-side expansion of recurring events (servers may not support
+			// <c:expand>, e.g. Yandex Calendar).
+			allEvents = ical.ExpandEvents(allEvents, startT, endT)
+
 			return mcp.ToolResult{
 				Content: []mcp.ContentItem{{
 					Type: "text",
