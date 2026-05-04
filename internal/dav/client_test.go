@@ -35,15 +35,16 @@ const calHomeResp = `<?xml version="1.0"?>
   </response>
 </multistatus>`
 
-// 207 depth:1 collections
+// 207 depth:1 collections.
+// resourcetype must include <calendar/> so DiscoverCollections accepts them.
 const collectionsResp = `<?xml version="1.0"?>
-<multistatus xmlns="DAV:">
+<multistatus xmlns="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
   <response>
     <href>/calendars/user/</href>
     <propstat>
       <prop>
         <displayname>Home</displayname>
-        <resourcetype><collection/></resourcetype>
+        <resourcetype><collection/><c:calendar/></resourcetype>
       </prop>
       <status>HTTP/1.1 200 OK</status>
     </propstat>
@@ -53,7 +54,7 @@ const collectionsResp = `<?xml version="1.0"?>
     <propstat>
       <prop>
         <displayname>Personal</displayname>
-        <resourcetype><collection/></resourcetype>
+        <resourcetype><collection/><c:calendar/></resourcetype>
       </prop>
       <status>HTTP/1.1 200 OK</status>
     </propstat>
@@ -126,7 +127,7 @@ func TestDiscoverCollections(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// root skipped, note.ics (non-collection) skipped — only /calendars/user/personal/ remains
+	// root (/calendars/user/) skipped, note.ics (non-calendar) skipped — only personal/ remains
 	if len(cols) != 1 {
 		t.Fatalf("expected 1 collection, got %d: %+v", len(cols), cols)
 	}
